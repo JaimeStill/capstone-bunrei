@@ -10,14 +10,16 @@
 2. [x] metadata-text
 3. [x] text-layer
 4. [x] vision
-5. [ ] messaging-append
+5. [x] messaging-append
 6. [ ] messaging-work-queue
 7. [ ] state
-8. [ ] api
-9. [ ] jobs
-10. [ ] prompts
-11. [ ] event-stream
-12. [ ] tool-packaging
+8. [ ] document-extraction
+9. [ ] api
+10. [ ] jobs
+11. [ ] prompts
+12. [ ] event-stream
+13. [ ] tool-packaging
+14. [ ] foundation-notes
 
 ## Decisions
 
@@ -60,6 +62,24 @@
 - vision: Mikoshi's chat agent system prompt (`.mikoshi` `context-tools`) follows the same pattern.
 - vision: kept card sampling; rejected the finding's lower vision temperature (temperature 0 loops
   at 1,120 image tokens, and overflow is tested only at 1.0).
+- messaging-append: a stream-backed root appends and reads through `messaging.Journal`, beside
+  `Broker`. Rejected: a method on the nats provider alone, which would make `state` import nats,
+  and go-core's `event.Sink`, since `Emit` overwrites the IDs Bunrei mints ahead and `Sink.Write`
+  returns no sequence.
+- messaging-append: memory, like a single nats-server, checks an append's expected sequence before
+  deduplicating, so a stale repeat is `messaging.ErrConflict` unless the original is still the
+  subject's last event, and a retry whose ack was lost succeeds; `state` relies on it. A
+  replicated stream deduplicates first, so there a stale repeat within the window returns the
+  original's sequence.
+- messaging-append: Bunrei's gap-free `jobsequence` is a count its own fold derives, not the
+  stream sequence `Journal` returns.
+- messaging-append: the journal uses the broker's own stream, so an appended subject is under its
+  `Prefix`, and a separate jobs stream means a second broker.
+- messaging-append: appended events reach the same broker's subscriptions and a type filter
+  matches on the subject, so a type-filtered subscription never receives a job event on the job's
+  own subject.
+- messaging-append: released as go-messaging `v0.4.0` and `nats/v0.4.0`; `messaging-work-queue`
+  builds on them. The postgres sqlate bumps stay under [Unreleased].
 
 ## Pending edits
 
@@ -104,3 +124,20 @@
   `docproc-v0.10.0/`, with its binaries in `bin-v0.10.0/`, and docinfer's text-layer run in
   `docinfer/text-layer/`; link docinfer's
   `docs/acceptance.md#docs-corpus-v020-with-the-text-layer-skip`.
+- coordinator · `context/messaging.md`, "Open", "A stream-backed root": the expected-sequence
+  append and the subject read are built in go-messaging v0.4.0 and nats/v0.4.0 as
+  `messaging.Journal`; only the work-queue package stays planned. Add to "Open": a replicated
+  stream deduplicates an append before checking its expected sequence, so a stale repeat within
+  the window returns the original's sequence, not `ErrConflict`, which `state` relies on.
+  "Assumptions", the outbox bullet: Bunrei appends a job's events through `messaging.Journal`.
+- coordinator · `docs/messaging.md`, "A stream-backed root": drop "Planned."; the append is
+  built as `messaging.Journal` (go-messaging's `docs/usage.md`, "Appending to a stream-backed
+  root"), and the work-queue package stays planned under `messaging-work-queue`.
+- coordinator · `roadmap/capstone.data-intelligence.bunrei.toml`: no task builds the go-messaging
+  asks `messaging-append` left out (a durable consumer filtered by subject, in-order delivery
+  within a delivery group); the `state` or `event-stream` summary sizes them.
+- coordinator · roadmap: a backlog entry for appending several events atomically (JetStream
+  atomic batch publish, once nats.go has a client API).
+- docproc · `context/bunrei.md`, "Requests to go-messaging": go-messaging v0.4.0's
+  `messaging.Journal` meets "A publish on a subject the caller names", with a guarded append and
+  a bounded read.
