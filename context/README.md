@@ -19,3 +19,4 @@ architecture and scope are `standards-lab/context/data-intelligence.md`, and its
 - **Processing profiles** (planned): the `capstone.data-intelligence.bunrei` goal, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
 - **Event and result-batch stream** (planned): the `capstone.data-intelligence.bunrei` goal, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
 - **Tool image** (planned): the `capstone.data-intelligence.bunrei` goal, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
+- **Metadata capture** (planned): docproc's format stages capture metadata and Bunrei parses no format; Bunrei's output events carry docproc's metadata records, `docproc/context/bunrei.md`; the `capstone.data-intelligence.bunrei` goal, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
