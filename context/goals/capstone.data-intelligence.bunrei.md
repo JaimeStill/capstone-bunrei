@@ -89,12 +89,6 @@
 - coordinator · `docs/data-intelligence.md`, "Bunrei", "Models and stages": a profile's vision
   and transcription prompts in Bunrei's configuration are defaults, and an active override stored
   at runtime replaces each, per profile and stage.
-- capstone-data-intelligence · `context/protocol.md`, "The client module", "Commands",
-  "Queries", and "Profiles and extraction": add the prompt override Queries (list, get) and
-  Commands (create, activate, deactivate). A profile's vision and transcription prompts are
-  defaults, and an active override replaces each, per profile and stage. A profile's name no
-  longer fixes its prompts: each attempt's `bunrei.job.started` records the resolved `Profile`
-  that ran.
 - docproc · `context/bunrei.md`, "The profile": a profile holds the vision prompt and sampling,
   and its vision and transcription prompts are defaults that an active override, stored at
   runtime, replaces.
