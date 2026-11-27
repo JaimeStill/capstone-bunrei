@@ -1,8 +1,8 @@
 # goal · capstone.data-intelligence.bunrei
 
-- **State:** brief ready
-- **Task:** messaging-append
-- **Branch:** messaging-append
+- **State:** idle
+- **Task:** none
+- **Branch:** none
 
 ## Tasks
 
@@ -10,7 +10,7 @@
 2. [x] metadata-text
 3. [x] text-layer
 4. [x] vision
-5. [ ] messaging-append
+5. [x] messaging-append
 6. [ ] messaging-work-queue
 7. [ ] state
 8. [ ] document-extraction
@@ -20,125 +20,6 @@
 12. [ ] event-stream
 13. [ ] tool-packaging
 14. [ ] foundation-notes
-
-## Task brief · messaging-append
-
-**Problem**
-
-Bunrei treats each job as a root Entity whose state is folded from the events on the job's own
-subject, and a Command's transaction is one guarded append: it succeeds only when the subject's last
-event is the one the caller has already folded. go-messaging can only publish an event under its
-type and consume it through a durable subscription. It can't append to a subject the caller names,
-check the expected position, or read one subject back in order, and Bunrei's `state` task needs all
-three from a released go-messaging. JetStream already does the guarded append (nats.go's
-`PublishMsg` with `WithExpectLastSequencePerSubject`) and reads a subject through an ordered
-consumer, so go-messaging wraps both behind a standard-tier contract. The memory provider meets
-the same contract as the test double.
-
-**Behaviors**
-
-1. The root package declares `Journal`, an interface beside `Broker`, not part of it, with `Append`
-   and `Read`. `nats.Broker` and `memory.Broker` both implement it, and existing `Broker`
-   implementations still compile.
-2. `Append(ctx, subject, expect, e)` stores one event the caller has already stamped on the named
-   subject. It succeeds only when the stream sequence of the subject's last event equals `expect`,
-   where 0 means the subject has no event yet, and it returns the new event's stream sequence.
-3. `Append` rejects an event that `messaging.Encode` rejects, a header value holding CR or LF, and a
-   subject that breaks `CheckType` (an empty token or a wildcard). The nats broker also refuses a
-   subject outside its `Prefix` as `event.Permanent`, naming the subject and the prefix. These
-   checks run whether or not the broker is started; after them, an unstarted nats broker fails
-   with `ErrNotStarted`.
-4. When the subject's last sequence differs from `expect`, `Append` fails with an error matching the
-   root sentinel `ErrConflict` under `errors.Is`, wrapped with the subject and the expected
-   sequence. On nats, JetStream error codes 10071 and 10164 both map to it.
-5. On a sequence mismatch, the provider first looks at the subject's last event. If that event has
-   the appended event's source and id, `Append` succeeds and returns that event's sequence. A retry
-   whose first ack was lost therefore succeeds on a single server and on a clustered stream alike.
-6. The nats append sets `Nats-Msg-Id` exactly as `Publish` does, from the event's length-prefixed
-   source and id. A repeat whose expected sequence matches returns the original's sequence; a stale
-   one is `ErrConflict` unless the original is the subject's last (behavior 5). Memory checks the
-   sequence before deduplicating, as one nats-server does, sharing a window with `Publish`.
-7. `Read(ctx, subject, after)` returns an `iter.Seq2` over entries and errors. Each entry is a
-   decoded event and its stream sequence. The read returns the subject's events after `after` (0
-   for all), in sequence order, and ends at the subject's last event as it stood when the read
-   began. An event appended during the read is not yielded. A subject with no events yields
-   nothing.
-8. When the read meets a message that doesn't decode, it yields the error and stops. Stopping
-   iteration early releases whatever the read holds; on nats, that is the ordered consumer.
-9. The nats read looks up the subject's last sequence once with `GetLastMsgForSubject`, then reads
-   through an ordered consumer filtered to the subject and starting after `after`. An empty
-   subject, or one whose last sequence is at or before `after`, creates no consumer.
-10. Appended events reach the same broker's subscriptions, as they do on a JetStream stream. An
-    unfiltered subscription receives them in sequence. A type filter matches an event's subject,
-    so it receives an appended event only when that event's subject is one of its `Types`.
-11. The memory broker keeps one log numbered like a stream, starting from 1. Each entry carries a
-    subject: the caller's subject for an appended event and the type for a published one.
-    Consumers match on the subject, so the behavior of `Publish` and `Subscribe` doesn't change.
-12. `messagingtest.RunJournal(t, newJournal)` is an exported conformance entry point that proves
-    behaviors 2 to 8 and 10, except 8's undecodable message, which each provider's own tests
-    prove. Both providers call it; `Run` is unchanged.
-13. The `messaging`, `memory`, `messagingtest` and `nats` package doc.go inventories list the new
-    exports. The README and the usage page (appending to and folding a root) describe them. The
-    internals page covers the conflict lookup, the order JetStream runs its sequence and
-    deduplication checks in on a single server versus a cluster, and the read's bound. The
-    context README's capability map gains an entry for the journal.
-14. The base and nats changelogs each carry a v0.4.0 section listing the journal additions. The
-    nats section also lists nats.go v1.56.0, which already sits under [Unreleased], and the
-    `go-messaging` v0.4.0 requirement. The postgres changelog records the sqlate bumps under
-    [Unreleased] only.
-
-**Test seams**
-- `messagingtest.RunJournal`, against the memory broker in the unit tier and the nats broker in
-  the nats integration suite.
-- The nats broker's unit tests for the checks that run before Start (behavior 3), and its
-  integration tests for the ordered consumer: early stop, the read's bound, and no consumer for an
-  empty subject.
-
-**Slices**
-1. **Upgrade go-messaging.** Move to sqlate v0.8.0, sqlate/postgres v0.9.0, sqlint v0.5.0 and
-   marathon 0.24.1. Done when `mise run currency` exits 0 and `mise run check` passes. The
-   postgres changelog notes the bumps under [Unreleased].
-2. **The contract and the memory append.** Add `Journal` and `ErrConflict`. Memory log entries
-   gain a subject and stream numbering, and memory consumers match on the subject. Implement the
-   memory `Append` (behaviors 2 to 6). Add `RunJournal` with the append cases, and run the memory
-   broker through it and through the unchanged `Run`.
-3. **The memory read and subscription visibility.** Implement the memory `Read` (behaviors 7 and
-   8). Add `RunJournal` cases for the read and for appended events reaching unfiltered and
-   type-filtered subscriptions (behavior 10).
-4. **The nats append.** Implement `Append` on `nats.Broker` (behaviors 2 to 6). The unit tests
-   cover the checks that run before Start. The integration suite runs the append cases of
-   `RunJournal`, including a retry whose ack was lost. Until the base module is tagged, the nats
-   module builds against it through a temporary replace directive.
-5. **The nats read.** Implement the ordered-consumer read (behaviors 7 to 9) and pass all of
-   `RunJournal` in the integration suite.
-6. **Documentation and release preparation.** Cover behaviors 13 and 14 and date the changelog
-   sections. At SHIP, the base is tagged first, then the nats module's requirement moves to
-   `go-messaging` v0.4.0, the replace directive is removed, and the nats module is tagged.
-
-**Out of scope**
-- Appending several events atomically, which would need JetStream's atomic batch publish.
-- A durable subscription filtered by subject, in-order delivery within a delivery group, and
-  following a subject live. These belong to Bunrei's `event-stream` and `state` tasks.
-- Bunrei's streams, subjects, retention and `jobsequence`, which belong to the `state` task.
-- The work-queue package, which belongs to `messaging-work-queue`.
-- Any change to go-core: `Recorder.Emit` and `event.Sink` are not used.
-- A postgres release.
-
-**Door**
-
-One-way for the `v0.4.0` and `nats/v0.4.0` tags: once the module proxy fetches them, they are
-permanent and reach consumers outside these repositories. Everything before the tags is two-way.
-
-**Release**
-
-`v0.4.0`, `nats/v0.4.0`
-
-## Progress
-
-slices 6/6 committed · standards ✓ · spec ✓ (round 2: no gaps) · editor ✓
-- escalation, spec review: a stale repeat returns ErrConflict unless the original is still the
-  subject's last, memory checking the sequence first? yes. Behavior 8's undecodable case proven
-  per provider, not in RunJournal? yes.
 
 ## Decisions
 
