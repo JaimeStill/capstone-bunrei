@@ -15,8 +15,9 @@
 7. [ ] state
 8. [ ] api
 9. [ ] jobs
-10. [ ] event-stream
-11. [ ] tool-packaging
+10. [ ] prompts
+11. [ ] event-stream
+12. [ ] tool-packaging
 
 ## Decisions
 
