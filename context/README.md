@@ -17,6 +17,7 @@ architecture and scope are `standards-lab/context/data-intelligence.md`, and its
 - **Chunked upload** (planned): the `capstone.data-intelligence.bunrei` goal, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
 - **Jobs and work queue** (planned): the `capstone.data-intelligence.bunrei` goal, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
 - **Processing profiles** (planned): the `capstone.data-intelligence.bunrei` goal, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
+- **Prompt overrides** (planned): an active override stored at runtime replaces a profile's default vision or transcription prompt; the `capstone.data-intelligence.bunrei` goal's `prompts` task, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
 - **Event and result-batch stream** (planned): the `capstone.data-intelligence.bunrei` goal, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
 - **Tool image** (planned): the `capstone.data-intelligence.bunrei` goal, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
 - **Metadata capture** (planned): docproc's format stages capture metadata and Bunrei parses no format; Bunrei's output events carry docproc's metadata records, `docproc/context/bunrei.md`; the `capstone.data-intelligence.bunrei` goal, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.

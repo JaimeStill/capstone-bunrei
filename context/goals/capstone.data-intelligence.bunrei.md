@@ -9,7 +9,7 @@
 1. [x] metadata
 2. [x] metadata-text
 3. [x] text-layer
-4. [ ] vision
+4. [x] vision
 5. [ ] messaging-append
 6. [ ] messaging-work-queue
 7. [ ] state
@@ -41,14 +41,24 @@
   output of its page that comes just before it. docproc keeps emitting every page image.
   Rejected dropping the image in docproc's document stage, which would put inference policy
   into preparation.
-- text-layer: a skipped page image yields no `Inference` and counts in `VisionCounts.Skipped`.
-  `Profile` reports the threshold. `Outcome` gains no constant.
 - text-layer: Bunrei's profile carries the threshold, set at `jobs`.
 - text-layer: a OneNote picture is an image and uses vision. Its OCR text reaches chunks only
   through its page's Markdown, and there is no backlog entry for it.
-- text-layer: a later acceptance rerun over docs-corpus v0.2.0 reads docproc v0.10.0's run,
-  `~/runs/docs-corpus/baseline/v0.2.0/docproc-v0.10.0`, and seeds its cache from
-  `docinfer/text-layer/out/`; the v0.9.0 run in `docproc/` lacks the metadata records.
+- vision: Bunrei's profile prompts are defaults; an active override stored at runtime replaces
+  each, as ~/code/herald does. Overrides are scoped per profile and stage (`vision`,
+  `transcription`), at most one active per pair; the extraction prompt stays the caller's.
+  Rejected: prompts fixed in code or configuration only, and per-request prompt overrides.
+- vision: Bunrei rebuilds a profile's docinfer pipeline when its resolved prompts change; docinfer
+  gains no per-run prompt, so `Profile` stays known before any job runs.
+- vision: a retried job's attempt uses the prompts active when it starts; its `started` records
+  them.
+- vision: the override Queries and Commands join the protocol and the `client` module.
+- vision: a new task, `prompts`, after `jobs`, builds the override store, API, and resolution;
+  `jobs` builds pipelines from configured prompts only. Whether Bunrei and Mikoshi share an
+  override library is decided when `prompts` is planned.
+- vision: Mikoshi's chat agent system prompt (`.mikoshi` `context-tools`) follows the same pattern.
+- vision: kept card sampling; rejected the finding's lower vision temperature (temperature 0 loops
+  at 1,120 image tokens, and overflow is tested only at 1.0).
 
 ## Pending edits
 
@@ -67,10 +77,31 @@
   tasks and `.bunrei`'s `api` task.
 - coordinator · `docs/data-intelligence.md`, "Open items": `text-layer` resolved. A OneNote
   picture is an image and uses vision.
-- coordinator · `docs/data-intelligence.md`, "Text layer and vision": resolved by docinfer
-  v0.5.0's layer-word skip, starting at 100 words. Correct the claim that two-column layers
-  interleave their columns: the finding shows pdftotext reads column by column, and the misses
-  are words split across columns. Cite docs-corpus v0.2.0 rather than the retired ~/docs pool.
+- coordinator · `docs/data-intelligence.md`, "Text layer and vision": cite docs-corpus v0.2.0
+  rather than the retired ~/docs pool. The `text-layer` bullet: resolved by docinfer v0.5.0's
+  layer-word skip, starting at 100 words; correct the claim that two-column layers interleave
+  their columns: the finding shows pdftotext reads column by column, and the misses are words
+  split across columns. The `vision` bullet: resolved by keeping the starting vision prompt and
+  card sampling, since over docs-corpus v0.2.0 only 2 of 1,234 pages with at least 100 layer
+  words come back described, both one unreadable table (docinfer's `docs/acceptance.md`,
+  "Described pages").
+- coordinator · `docs/data-intelligence.md`, "Bunrei", "Models and stages": a profile's vision
+  and transcription prompts in Bunrei's configuration are defaults, and an active override stored
+  at runtime replaces each, per profile and stage.
+- capstone-data-intelligence · `context/protocol.md`, "The client module", "Commands",
+  "Queries", and "Profiles and extraction": add the prompt override Queries (list, get) and
+  Commands (create, activate, deactivate). A profile's vision and transcription prompts are
+  defaults, and an active override replaces each, per profile and stage. A profile's name no
+  longer fixes its prompts: each attempt's `bunrei.job.started` records the resolved `Profile`
+  that ran.
+- docproc · `context/bunrei.md`, "The profile": a profile holds the vision prompt and sampling,
+  and its vision and transcription prompts are defaults that an active override, stored at
+  runtime, replaces.
+- coordinator · roadmap: a backlog note that go-ai's built-in chat-mode transcription
+  instruction, which docinfer sends when its transcription prompt is empty, is not in docinfer's
+  transcription cache key, so a go-ai change to it doesn't miss held transcripts.
+- coordinator · roadmap: a backlog entry for a Mikoshi prompt-tuning view over Bunrei's prompt
+  override Queries and Commands.
 - coordinator · `docs/data-intelligence.md`, "docinfer's configuration": add the vision
   layer-word threshold, cmd/docinfer's `vision.layer_words`, starting at 100, to be tuned from
   the thresholds docinfer's `docs/acceptance.md` measures ("The layer-word threshold").
