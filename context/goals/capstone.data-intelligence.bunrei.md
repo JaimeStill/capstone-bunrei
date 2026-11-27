@@ -12,21 +12,16 @@
 4. [ ] vision
 5. [ ] messaging-append
 6. [ ] messaging-work-queue
-7. [ ] sse-codec
-8. [ ] sse-writer
-9. [ ] go-ai-sse
-10. [ ] upload
-11. [ ] state
-12. [ ] api
-13. [ ] jobs
-14. [ ] event-stream
-15. [ ] tool-packaging
+7. [ ] state
+8. [ ] api
+9. [ ] jobs
+10. [ ] event-stream
+11. [ ] tool-packaging
 
 ## Decisions
 
 - capstone: contracts (`chunks`, `protocol`, `events`) are designed in `.foundation` at capstone-data-intelligence; Bunrei and Mikoshi build against them, and a task that reads one opens its summary with "Waits on".
 - capstone: Bunrei's `client` module is released by tag (`client/v0.1.0` at `api`); Mikoshi imports the published version, never a replace directive.
-- capstone: only `.bunrei` touches the exclusive group (docproc, docinfer, go-messaging); `.mikoshi` stays out of it, so its SSE relay and context tree live in Mikoshi, shaped to graduate.
 - capstone: items join contexts by reference and a context covers its descendants; chunks and embeddings stay keyed by content and carry no context.
 - metadata: PDF metadata through pdfinfo; rejected qpdf (its JSON reaches the dictionary and XMP only by object id, and leaves PDF `D:` date parsing to docproc).
 - metadata: EXIF through magick; rejected exiftool (a new Perl tool in Bunrei's image) and Go EXIF
