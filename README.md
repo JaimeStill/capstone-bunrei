@@ -40,7 +40,7 @@ Each task wraps a plain command, so the repository works without mise:
 | `mise run vet` | `go vet -tags integration ./...` | Compile-check and vet, the integration suite included |
 | `mise run serve` | `go run ./cmd/server` | Run the service locally |
 | `mise run test` | `go test -race ./...` | Run the unit tier |
-| `mise run integration` | `go test -race -count=1 -tags integration ./integration/` | Run the integration tier against the built service |
+| `mise run integration` | `docker compose up -d --wait --build`, then `go test -race -count=1 -tags integration ./integration/` | Run the integration tier against the built service on the isolated compose stack, then tear the stack down |
 | `mise run fmt` | `gofmt -w .` | Format the source |
 | `mise run tidy` | `go mod tidy` | Reconcile module requirements |
 | `mise run lint` | `golangci-lint run --build-tags integration ./...` | Lint, the integration suite included |
@@ -68,10 +68,10 @@ between nodes is dropped but one: the server's order after the reactors group, w
 is empty. Each check is shown failing on a fixture that breaks it, with the layer table.
 
 The template's suite asserts the baseline: boot, both probes, and the drain. As the build points
-fill in, each capability adds its cases beside them, and the first backing service brings its
-compose stack: the task then boots that stack as an isolated compose project on its own port,
-runs the suite, and tears it down with its volume on exit, so a developer's stack and data are
-never touched. The reference service shows the shape.
+fill in, each capability adds its cases beside them. The suite runs on Bunrei's compose stack
+(NATS, PostgreSQL, and SeaweedFS): `mise run integration` boots it as an isolated compose project
+on its own ports, runs the suite, and tears it down with its volumes on exit, so a developer's
+stack and data are never touched. [Compose](compose/README.md) describes the stack.
 
 ## Configuration
 

@@ -29,5 +29,5 @@ jobs:
 
       - uses: jdx/mise-action@v5.3.0
 
-      - name: go test -tags integration
-        run: go test -race -count=1 -tags integration ./integration/
+      - name: mise run integration
+        run: mise run integration

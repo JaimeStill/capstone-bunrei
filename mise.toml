@@ -7,6 +7,7 @@ task.run_auto_install = false
 go = "1.27.4"
 golangci-lint = "2.15.0"
 jq = "1.8.2"
+"aqua:google/go-containerregistry" = "0.22.1"
 
 [env]
 BUNREI_ENV = "local"
@@ -83,8 +84,14 @@ description = "Run the unit tier"
 run = "go test -race ./..."
 
 [tasks.integration]
-description = "Run the integration tier against the built service, as a subprocess"
-run = "go test -race -count=1 -tags integration ./integration/"
+description = "Start the isolated compose stack on its own ports, run the integration tier against the built service, print the stack's logs on a failure, and tear the stack down with its volumes"
+run = '''
+set -e
+export COMPOSE_PROJECT_NAME=capstone-bunrei-integration NATS_PORT=4227 POSTGRES_PORT=5443 SEAWEEDFS_S3_PORT=8338
+trap 'rc=$?; [ $rc -eq 0 ] || docker compose logs; docker compose down -v; exit $rc' EXIT
+docker compose up -d --wait --build
+go test -race -count=1 -tags integration ./integration/
+'''
 
 [tasks.fmt]
 description = "Format all Go source"

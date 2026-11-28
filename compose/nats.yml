@@ -1,0 +1,11 @@
+services:
+  nats:
+    build:
+      context: nats
+    ports:
+      - "127.0.0.1:${NATS_PORT:-4227}:4222"
+    volumes:
+      - capstone-bunrei-nats:/data
+
+volumes:
+  capstone-bunrei-nats:

@@ -1,0 +1,11 @@
+services:
+  seaweedfs:
+    build:
+      context: seaweedfs
+    ports:
+      - "127.0.0.1:${SEAWEEDFS_S3_PORT:-8338}:8333"
+    volumes:
+      - capstone-bunrei-seaweedfs:/data
+
+volumes:
+  capstone-bunrei-seaweedfs:

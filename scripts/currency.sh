@@ -3,7 +3,9 @@
 # release, one line each, and exits non-zero when it reports any. It reads the
 # network and writes nothing. Run it through `mise run currency`. The actions it
 # checks are those of the project root's workflows and, when the repository nests
-# the project in a subdirectory, of the git top-level's.
+# the project in a subdirectory, of the git top-level's. An image pin is a compose
+# or CI image: line or a compose service's Dockerfile FROM line, compared with the
+# highest release tag as the rolling currency principle defines one.
 #
 # Each scan captures its command's output in a variable before reading it, so
 # under set -e a scan command that fails (a go list missing a go.sum entry)
@@ -58,12 +60,18 @@ report_outdated_mise_tools() {
 	done <<<"$outdated"
 }
 
-report_outdated_actions() {
-	local root top workflows actions uses action pin repo latest
-	root=$(pwd -P)
+workflow_files() {
+	local root top
+	root=$(pwd -P) || return
 	top=$(git rev-parse --show-toplevel 2>/dev/null || echo "$root")
-	workflows=("$root"/.github/workflows/*.yml)
-	[ "$top" = "$root" ] || workflows+=("$top"/.github/workflows/*.yml)
+	printf '%s\n' "$root"/.github/workflows/*.yml
+	if [ "$top" != "$root" ]; then
+		printf '%s\n' "$top"/.github/workflows/*.yml
+	fi
+}
+
+report_outdated_actions() {
+	local workflows=("$@") actions uses action pin repo latest
 	actions=$(matches 'uses: *[^ ]*@[^ ]*' "${workflows[@]}" | sed 's/uses: *//' | sort -u)
 	for uses in $actions; do
 		action=${uses%@*}
@@ -74,11 +82,51 @@ report_outdated_actions() {
 	done
 }
 
+latest_tag() {
+	local image=$1 pin=$2 suffix pattern tags latest
+	suffix=${pin#"${pin%%[!0-9.]*}"}
+	pattern="^[0-9]+(\.[0-9]+)+${suffix//./\\.}\$"
+	tags=$(crane ls "$image") || return
+	latest=$(grep -E "$pattern" <<<"$tags" | sed "s/${suffix}\$//" | sort -V | tail -n1) || return
+	echo "$latest$suffix"
+}
+
+report_outdated_image() {
+	local where=$1 ref=$2 image pin latest
+	image=${ref%:*}
+	pin=${ref##*:}
+	latest=$(latest_tag "$image" "$pin")
+	[ "$pin" = "$latest" ] || report "$where: $image $pin -> $latest"
+}
+
+report_outdated_image_lines() {
+	local workflows=("$@") images ref
+	images=$(matches '^ *image: *[^ ]*' compose.yml compose/*.yml "${workflows[@]}" |
+		sed 's/^ *image: *//' | tr -d "\"'" | sort -u)
+	for ref in $images; do
+		report_outdated_image images "$ref"
+	done
+}
+
+report_outdated_dockerfiles() {
+	local dockerfile ref
+	for dockerfile in compose/*/Dockerfile; do
+		if [ -e "$dockerfile" ]; then
+			ref=$(sed -n 's/^FROM  *\([^ ]*\).*/\1/p' "$dockerfile" | head -n1)
+			report_outdated_image "$dockerfile" "$ref"
+		fi
+	done
+}
+
 go_minor=$(mise latest go | cut -d. -f1,2)
 for mod in $GO_MODULES; do
 	report_outdated_requirements "$mod"
 	report_outdated_go_directive "$mod" "$go_minor"
 done
 report_outdated_mise_tools
-report_outdated_actions
+workflow_list=$(workflow_files)
+mapfile -t workflows <<<"$workflow_list"
+report_outdated_actions "${workflows[@]}"
+report_outdated_image_lines "${workflows[@]}"
+report_outdated_dockerfiles
 exit "$stale"
