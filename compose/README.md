@@ -1,8 +1,8 @@
-# Compose
+# The integration stack
 
-Bunrei's integration stack, defined in `compose.yml` at the repository root and the files under
-this directory, one file per service. `compose.yml` names the project (`capstone-bunrei`) and
-lists `include:` entries; each included file owns one service's port and volume.
+`compose.yml` at the repository root and the files in this directory define Bunrei's integration
+stack. `compose.yml` names the project (`capstone-bunrei`) and includes one file per service,
+which owns that service's port and volume.
 
 The stack serves the integration tier only. Bunrei runs locally against the capstone's own stack
 (capstone-data-intelligence's `context/stack.md`), and this stack duplicates that stack's image

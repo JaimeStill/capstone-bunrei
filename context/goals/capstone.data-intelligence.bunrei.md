@@ -121,10 +121,10 @@ configuration or migrations a later task can change while no deployment holds da
 
 ## Progress
 
-slices 8/8 committed · standards ✓ · spec ✓ (2 rounds) · editor —
+slices 8/8 committed · standards ✓ · spec ✓ (2 rounds) · editor ✓
 - slice 2: no root `require` on `client` until a root package imports it (tidy drops it);
   wire names snake_case after docinfer; `client` requires docinfer v0.5.0; the wire-version
-  constant waits for the first `dataschema` stamp.
+  constant arrived in slice 3 (`client.Version`), with the first `dataschema` stamp.
 - slice 3: `completed` fills `Job.Manifest`; Append folds before appending (refuses an event
   the fold can't apply); unknown-outcome retries (3) live in `Service.Append`; time stamped when
   absent; job IDs must be UUIDs; `dataschema` per layer; go directive 1.27.4.
@@ -150,24 +150,12 @@ slices 8/8 committed · standards ✓ · spec ✓ (2 rounds) · editor —
 - capstone: contracts (`chunks`, `protocol`, `events`) are designed in `.foundation` at capstone-data-intelligence; Bunrei and Mikoshi build against them, and a task that reads one opens its summary with "Waits on".
 - capstone: Bunrei's `client` module is released by tag (`client/v0.1.0` at `api`); Mikoshi imports the published version, never a replace directive.
 - capstone: items join contexts by reference and a context covers its descendants; chunks and embeddings stay keyed by content and carry no context.
-- metadata: PDF metadata through pdfinfo; rejected qpdf (its JSON reaches the dictionary and XMP only by object id, and leaves PDF `D:` date parsing to docproc).
-- metadata: EXIF through magick; rejected exiftool (a new Perl tool in Bunrei's image) and Go EXIF
-  libraries (none ecosystem-standard).
-- metadata: docinfer renders the metadata text; rejected a docproc text rendering (chunked as
-  content), Bunrei (`cmd/docinfer` would lack it), and widening `MetadataText` to take the record
-  (every host would handle an error a part can't have); never defer a layer's change to avoid its
-  release.
-- metadata: capstone-bunrei requires docproc and docinfer only from the first task that imports them.
 - metadata-text: Skype conversation records are not rendered (backlog).
 - text-layer: a page's text layer stands in for its vision text when it holds at least the
   threshold's words, a word being a run of letters or digits. A page with no layer always goes
   to vision. 100 is a starting value, to be tuned from the live run's measurements of thin
   pages skipped and vision words lost. Rejected OCRmyPDF's any-text rule, which skips every thin
   page, and bitmap coverage, which needs a Python layout pass or a new docproc adapter.
-- text-layer: docinfer's `Pipeline.Run` decides the skip by matching a page image to the text
-  output of its page that comes just before it. docproc keeps emitting every page image.
-  Rejected dropping the image in docproc's document stage, which would put inference policy
-  into preparation.
 - text-layer: Bunrei's profile carries the threshold, set at `jobs`.
 - text-layer: a OneNote picture is an image and uses vision. Its OCR text reaches chunks only
   through its page's Markdown, and there is no backlog entry for it.
@@ -186,70 +174,33 @@ slices 8/8 committed · standards ✓ · spec ✓ (2 rounds) · editor —
 - vision: Mikoshi's chat agent system prompt (`.mikoshi` `context-tools`) follows the same pattern.
 - vision: kept card sampling; rejected the finding's lower vision temperature (temperature 0 loops
   at 1,120 image tokens, and overflow is tested only at 1.0).
-- messaging-append: a stream-backed root appends and reads through `messaging.Journal`, beside
-  `Broker`. Rejected: a method on the nats provider alone, which would make `state` import nats,
-  and go-core's `event.Sink`, since `Emit` overwrites the IDs Bunrei mints ahead and `Sink.Write`
-  returns no sequence.
-- messaging-append: memory, like a single nats-server, checks an append's expected sequence before
-  deduplicating, so a stale repeat is `messaging.ErrConflict` unless the original is still the
-  subject's last event, and a retry whose ack was lost succeeds; `state` relies on it. A
-  replicated stream deduplicates first, so there a stale repeat within the window returns the
-  original's sequence.
-- messaging-append: Bunrei's gap-free `jobsequence` is a count its own fold derives, not the
-  stream sequence `Journal` returns.
-- messaging-work-queue: jobs go through go-messaging's `messaging.Queue`, apart from `Broker`, on
-  a stream of its own with work-queue retention; the contract names nothing from JetStream, and
-  no Postgres provider is built (backlog).
-- messaging-work-queue: a worker runs through `messaging.Runtime.Work`. go-core's reactor detaches
-  a handler from its source's cancellation, so `Runtime.Work` ends the handler's context from
-  `messaging.DeliveryEnd` and `reactor.Draining`; go-core is unchanged.
-- messaging-work-queue: the queue extends a running delivery itself; the handler takes no extend
-  function, and its context ends once no extension has succeeded within `AckWait`. Bunrei's
-  fencing covers the overlap.
-- messaging-work-queue: `AckWait` bounds a delivery between extensions, not a job's length. The
-  NATS queue rejects `AckWait` plus `nats.AckMargin` at or past `messaging.DefaultDuplicates`
-  (2m), so a repeated dead letter is deduplicated; a non-owner bound to a stream with a smaller
-  window isn't protected.
-- messaging-work-queue: the queue enforces `MaxDeliver` itself, and the NATS consumer sets no
-  server delivery limit, so a dead letter whose publish fails is retried on every later delivery.
-  A failed final attempt, an `event.Permanent` error, or a delivery past the limit is
-  dead-lettered, so `state` needs no advisory or sweep. Rejected the server limit at `MaxDeliver`
-  + 1, which strands a job whose dead-letter publish fails on the extra delivery, and the
-  MAX_DELIVERIES advisory, lost when no subscriber listens and lacking the message.
-- messaging-work-queue: a dead letter is the original event, unchanged, with attempt and
-  last-error headers, on a subject inside the queue's own stream; a worker on it (Bunrei
-  appending `failed`) takes each off with an ack.
+- messaging-work-queue: the queue extends a running delivery itself and ends the handler's
+  context once no extension has succeeded within `AckWait`; Bunrei's fencing (`jobs`) covers the
+  overlap.
 - messaging-work-queue: a work-queue stream takes one worker group per subject, so two kinds of
   work need two queues.
-- messaging-work-queue: on drain, a handler's nil or permanent error settles its job, and any
-  other error leaves the job for redelivery.
-- messaging-work-queue: the final attempt is attempt == `MaxDeliver`, which `Worker.Final` reports;
-  `jobs` sets `docinfer.Options.Final` from it.
-- messaging-work-queue: released as go-messaging `v0.5.0` and `nats/v0.5.0`; `state` builds on
-  them. The postgres sqlate bumps stay under [Unreleased].
-
-- state: `state` builds Bunrei's stores and the job root (fold and guarded append); Submit,
-  CancelJob and routes stay `api`'s, running jobs `jobs`'.
-- state: the job's types live in the nested `client` module, created unreleased at `state` via
-  `replace ./client`; `api` adds `Client` and the Commands and tags `client/v0.1.0`.
-- state: the fold applies all 13 job types; batches fold from headers into `Batches`, `Chunks`,
-  `Digest`; `checkpoint` keeps the last `After`; `jobs` writes `completed`'s `Manifest` from the
-  fold and adds `Done`.
-- state: the job root stamps `id`, `source`, `subject`, `correlationid`, `jobsequence`, `layer`;
-  the caller sets `causationid`; appends to an ended job are refused.
-- state: blob storage is retained by a Bunrei reclaimer (list prefix, delete by `ModifiedAt`) on
-  go-database's `sweep`, beside docproc index and go-messaging outbox/inbox retention. Rejected a
-  bucket lifecycle rule (docproc/storage's recommendation): go-storage can't set one, the stack
-  creates no bucket, SeaweedFS support unconfirmed.
-- state: starting retentions: BUNREI_JOBS 30d (GetJob loses the job after); docproc index 30d;
-  content renew 7d; `content/` 67d; `input/` 30d; outbox and inbox 7d; BUNREI_WORK 0.
-- state: Bunrei's `upload.Store` is `api`'s (PostgreSQL row with chunks at
-  `upload/<upload>/<offset>`, or a BUNREI_UPLOADS stream, settled there).
-- state: the integration tier runs on Bunrei's own compose stack via `mise run integration`, in CI.
+- messaging-work-queue: a dead letter is the original event on `bunrei.work.dead`, with attempt
+  and last-error headers; `jobs`' worker on it appends `failed` and acks each.
+- messaging-work-queue: `jobs` sets `docinfer.Options.Final` from `messaging.Worker.Final`.
+- state: `api` owns Submit, CancelJob, GetJob's route, Submit's idempotency record, and
+  `upload.Store` (a PostgreSQL row with chunks at `upload/<upload>/<offset>`, or a BUNREI_UPLOADS
+  stream, settled there); `jobs` owns running jobs. GetJob finds no job past BUNREI_JOBS's 30 days.
+- state: the root module builds against `client` through `replace ./client`; `api` adds `Client`
+  and the Commands and tags `client/v0.1.0`.
+- state: `jobs` writes `completed`'s `Manifest` from `Job.Results` plus each attempt's `Done`.
+- state: the job root's callers pass UUID job IDs and set `causationid`; `Append` folds the
+  decided event before appending, so one the fold can't apply appends nothing, and retries an
+  unknown outcome itself (3 times); its subject prefix is `nats.prefix`, through `Options.Prefix`.
+- state: blob objects expire through the root-level `expiry` package (no library pages a storage
+  prefix by age) on go-database's `sweep`; startup refuses a content or input age at or below the
+  renew age. Rejected a bucket lifecycle rule (docproc/storage's recommendation): go-storage can't
+  set one, the stack creates no bucket, SeaweedFS support unconfirmed.
+- state: the integration stack listens on NATS 4227, PostgreSQL 5443, SeaweedFS S3 8338; the
+  local overlay points at the capstone dev stack (4226, 5439, 8335).
+- state: docproc/postgres v0.1.8 is fetched direct: the module proxy and sumdb 404 the tag, which
+  exists on the public remote.
 - state: go-messaging unchanged; in-order delivery within a group goes to `event-stream`;
   following one job's subject for fencing goes to `jobs` (or polling `Read`).
-- state: names: BUNREI_JOBS (prefix `bunrei.job`), BUNREI_WORK (`bunrei.work`, dead letters
-  `bunrei.work.dead`), file storage; blob prefixes `content/`, `input/`, `upload/`.
 
 ## Pending edits
 
@@ -298,8 +249,8 @@ slices 8/8 committed · standards ✓ · spec ✓ (2 rounds) · editor —
   atomic batch publish, once nats.go has a client API).
 - coordinator · `context/messaging.md`: "Open", "A stream-backed root": drop "(planned)";
   go-messaging builds the append and subject read as `messaging.Journal` (v0.4.0, nats/v0.4.0)
-  and the work-queue package as `messaging.Queue` (v0.5.0, nats/v0.5.0); Bunrei's use stays
-  planned. Retire "A dead-letter stream, deferred until a consumer needs replay": the queue
+  and the work-queue package as `messaging.Queue` (v0.5.0, nats/v0.5.0); Bunrei's job root
+  appends and reads through `messaging.Journal`, and its workers on the queue are `jobs`'. Retire "A dead-letter stream, deferred until a consumer needs replay": the queue
   dead-letters onto a subject on its own stream, and replay stays unbuilt. Add to "Open": a
   replicated stream deduplicates an append before checking its expected sequence, so a stale
   repeat within the window returns the original's sequence, not `ErrConflict`. "Decisions": a
@@ -311,8 +262,6 @@ slices 8/8 committed · standards ✓ · spec ✓ (2 rounds) · editor —
   the work-queue package as `messaging.Queue` (its `docs/usage.md`, "The work queue"). "The
   capability ledger": add a row, a work queue of durable jobs with extension, a retry limit,
   backoff, and dead letters, classed Standard as `messaging.Queue`, apart from `Broker`.
-- coordinator · `docs/data-intelligence.md`, "Open items": drop `state`'s question of how a job
-  whose last delivery died is found and failed; go-messaging v0.5.0's work queue dead-letters it.
 - docproc · `context/bunrei.md`: "A job": the work queue, not the replica, extends a running
   delivery, and `docinfer.Options.Final` comes from `messaging.Worker.Final`. "A dead last
   delivery": closed; the queue dead-letters a delivery past `MaxDeliver` without running its
@@ -330,11 +279,17 @@ slices 8/8 committed · standards ✓ · spec ✓ (2 rounds) · editor —
 - coordinator · roadmap: backlog entry for docinfer cache retention.
 - capstone-data-intelligence · `context/protocol.md` "Ownership" and "The client module";
   `context/events.md` "Ownership": `state` creates `client` with the job types; `api` completes and
-  releases it.
-- docproc · `context/bunrei.md` "State and subjects": settled names and retentions; Bunrei's
-  reclaimer replaces "host sweeps content by age"; drop "names and retentions are `state`'s"; keys are `content/ab/<sha256>` and
-  `input/ab/<sha256>`, as docproc/storage lays them out.
-- coordinator · `docs/data-intelligence.md`: "Open items" `state` names/retentions resolved;
-  "Bunrei", "State": reclaimer, not lifecycle rule.
+  releases it. `client` requires docinfer v0.5.0 and docproc v0.10.0, and its `Version`, `1`, is
+  the wire version `urn:standards-lab:bunrei:client:1` names.
+- docproc · `context/bunrei.md` "State and subjects": keys are `content/ab/<sha256>` and
+  `input/ab/<sha256>`, as docproc/storage lays them out; the retentions in the next edit; Bunrei's
+  sweep replaces "The host sweeps content by age"; drop "The names and retentions are the `state`
+  task's".
+- coordinator · `docs/data-intelligence.md`: "Open items": drop `state`'s question; go-messaging
+  v0.5.0's queue dead-letters a job whose last delivery died. "Bunrei", detail "State": BUNREI_JOBS
+  keeps 30 days, BUNREI_WORK no max age; `content/` 67 days (renewed after 7), `input/` 30,
+  `upload/` `api`'s; docproc's index 30, outbox and inbox 7; a sweep reactor deletes past each age,
+  reclaiming blobs by prefix, not by a lifecycle rule. "Tool packaging": a deployment
+  supplies the database password and storage key as secrets (Bunrei's README, "Configuration").
 - coordinator · `context/data-intelligence.md` go-messaging asks: append and work queue built
   (v0.4.0, v0.5.0); remaining asks move to `event-stream` and `jobs`.

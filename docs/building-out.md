@@ -93,3 +93,23 @@ Configuration grows by adding fields to `Config` in `internal/config/config.go` 
 to their `Merge` and `Finalize` in the existing shape; the `reads` block is the model for a
 service-owned block. The service keeps pace with its SDKs by updating its `go-core` and
 `go-web-sdk` pins and applying whatever adjustments the release notes call for.
+
+## Which packages import a provider
+
+Only the composition root, `internal/app`, imports a provider:
+
+- `infrastructure.go` builds the pool through go-database's `postgres`, takes the dialect from
+  sqlate's `postgres`, builds the object store's client through go-storage's `s3`, and builds the
+  job journal and the work queue through go-messaging's `nats`.
+- `admin.go` declares the migration sets of docproc's, docinfer's, and go-messaging's `postgres`
+  packages.
+- `reactors.go` gives the sweeper the retention of docproc's and go-messaging's `postgres`
+  packages.
+- `app.go` types the graph's job journal and work queue nodes as go-messaging's `nats` values.
+
+Every other package is provider-free, with two exceptions. `internal/config` imports go-messaging's
+`nats` for its `nats` and `nats_queue` blocks alone, since go-messaging keeps the broker's settings
+with its provider. The integration tier runs outside the service's process and builds its own
+clients to read beneath the API: the harness opens a pool through go-database's `postgres`, and
+the jobs and streams tests connect through nats.go. The boundary is a convention held in review;
+no linter enforces it.
