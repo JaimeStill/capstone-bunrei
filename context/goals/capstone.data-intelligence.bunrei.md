@@ -13,7 +13,7 @@
 5. [x] messaging-append
 6. [x] messaging-work-queue
 7. [x] state
-8. [ ] document-extraction
+8. [x] document-extraction
 9. [ ] api
 10. [ ] jobs
 11. [ ] prompts
@@ -71,23 +71,28 @@
   prefix by age) on go-database's `sweep`; startup refuses a content or input age at or below the
   renew age. Rejected a bucket lifecycle rule (docproc/storage's recommendation): go-storage can't
   set one, the stack creates no bucket, SeaweedFS support unconfirmed.
-- state: the integration stack listens on NATS 4227, PostgreSQL 5443, SeaweedFS S3 8338; the
-  local overlay points at the capstone dev stack (4226, 5439, 8335).
 - state: docproc/postgres v0.1.8 is fetched direct: the module proxy and sumdb 404 the tag, which
   exists on the public remote.
 - state: go-messaging unchanged; in-order delivery within a group goes to `event-stream`;
   following one job's subject for fencing goes to `jobs` (or polling `Read`).
+- document-extraction: docinfer's `Options` carries `Document` and `Timeline` as optional
+  `*Extract`s beside the per-source `Extract`, each with its own prompt and schema; Bunrei's
+  Submit, CompleteUpload, and `queued` carry all three (`api`). Rejected a scope setting on one
+  Extract.
+- document-extraction: a text past `Extraction.WindowRunes` is windowed by `chunk.Splitter` and
+  combined by repeated calls with the same Extract under a fixed combine instruction, every call
+  cached by its own input's SHA-256. A rune bound, since the gateway can't tokenize for `agent`.
+  No default; Bunrei's profile sets it at `jobs`. Rejected Athena's 10,000-character truncation,
+  marking long texts incomplete, and langchaingo's map-reduce chain.
+- document-extraction: `job` yields no checkpoint while `Document` is set; Bunrei's `jobs` resumes
+  such a job from the start. Rejected carrying text SHA-256s in `Checkpoint`.
 
 ## Pending edits
 
 - coordinator · `docs/data-intelligence.md`, "Tool packaging": the image holds poppler-utils 22.02
   or later, whose pdfinfo docproc v0.10.0's document stage requires beside pdftotext and pdfdetach,
-  and ImageMagick 7.1 or later, whose magick its vision stage now requires, as the picture and
+  and ImageMagick 7.1 or later, whose magick its vision stage requires, as the picture and
   office stages do. "Open items": `metadata` resolved by docproc v0.10.0.
-- coordinator · roadmap: a backlog entry for picture metadata beyond EXIF (IPTC, maker notes,
-  reverse geocoding).
-- coordinator · roadmap: a backlog entry for rendering Skype conversation records
-  (`MediaMailConversation`: topic, start, end, missed) as metadata text.
 - capstone-data-intelligence · `context/chunks.md`, "Fields" and "Source occurrence": a source's
   text SHA-256 is its `sha256` when present, else its `output`'s; a metadata source may carry the
   record output it renders, whose `sha256` is the record's, not the text's; links move to docinfer
@@ -109,11 +114,6 @@
 - docproc · `context/bunrei.md`, "The profile": a profile holds the vision prompt and sampling,
   and its vision and transcription prompts are defaults that an active override, stored at
   runtime, replaces.
-- coordinator · roadmap: a backlog note that go-ai's built-in chat-mode transcription
-  instruction, which docinfer sends when its transcription prompt is empty, is not in docinfer's
-  transcription cache key, so a go-ai change to it doesn't miss held transcripts.
-- coordinator · roadmap: a backlog entry for a Mikoshi prompt-tuning view over Bunrei's prompt
-  override Queries and Commands.
 - coordinator · `docs/data-intelligence.md`, "docinfer's configuration": add the vision
   layer-word threshold, cmd/docinfer's `vision.layer_words`, starting at 100, to be tuned from
   the thresholds docinfer's `docs/acceptance.md` measures ("The layer-word threshold").
@@ -121,13 +121,12 @@
   `docproc-v0.10.0/`, with its binaries in `bin-v0.10.0/`, and docinfer's text-layer run in
   `docinfer/text-layer/`; link docinfer's
   `docs/acceptance.md#docs-corpus-v020-with-the-text-layer-skip`.
-- coordinator · roadmap: a backlog entry for appending several events atomically (JetStream
-  atomic batch publish, once nats.go has a client API).
 - coordinator · `context/messaging.md`: "Open", "A stream-backed root": drop "(planned)";
   go-messaging builds the append and subject read as `messaging.Journal` (v0.4.0, nats/v0.4.0)
   and the work-queue package as `messaging.Queue` (v0.5.0, nats/v0.5.0); Bunrei's job root
-  appends and reads through `messaging.Journal`, and its workers on the queue are `jobs`'. Retire "A dead-letter stream, deferred until a consumer needs replay": the queue
-  dead-letters onto a subject on its own stream, and replay stays unbuilt. Add to "Open": a
+  appends and reads through `messaging.Journal`, and its workers on the queue are `jobs`'. Retire
+  "A dead-letter stream, deferred until a consumer needs replay": the queue dead-letters onto a
+  subject on its own stream, and replay stays unbuilt. Add to "Open": a
   replicated stream deduplicates an append before checking its expected sequence, so a stale
   repeat within the window returns the original's sequence, not `ErrConflict`. "Decisions": a
   work-queue worker runs through `messaging.Runtime.Work`, since go-core's reactor detaches a
@@ -146,13 +145,9 @@
   go-messaging": v0.4.0's `messaging.Journal` meets "A publish on a subject the caller names" with
   a guarded append and a bounded read, and v0.5.0's queue meets the in-progress acknowledgement
   with its own extension of a running delivery.
-- coordinator · roadmap: a backlog entry for a Postgres `SKIP LOCKED` work-queue provider that
-  meets go-messaging's work-queue contract and conformance suite.
 - coordinator · roadmap: `state` summary drops "uploads"; `api` takes `upload.Store` and Submit's
   idempotency record; `event-stream` takes in-order delivery within a group; `jobs` takes
   following one job's subject for fencing and emptying docproc's working directory at startup.
-  Retires the existing edit about the asks `messaging-append` left out.
-- coordinator · roadmap: backlog entry for docinfer cache retention.
 - capstone-data-intelligence · `context/protocol.md` "Ownership" and "The client module";
   `context/events.md` "Ownership": `state` creates `client` with the job types; `api` completes and
   releases it. `client` requires docinfer v0.5.0 and docproc v0.10.0, and its `Version`, `1`, is
@@ -169,3 +164,18 @@
   supplies the database password and storage key as secrets (Bunrei's README, "Configuration").
 - coordinator · `context/data-intelligence.md` go-messaging asks: append and work queue built
   (v0.4.0, v0.5.0); remaining asks move to `event-stream` and `jobs`.
+- capstone-data-intelligence · `context/protocol.md`, `events.md`, `athena.md`: docinfer v0.6.0
+  builds both scopes as `Options.Document` and `Options.Timeline`; Submit, CompleteUpload, and
+  `queued` carry all three extracts under the 256 KiB cap; `inference` carries `scope`.
+- docproc · `context/bunrei.md`: "the extraction spec" becomes the three optional extracts.
+- coordinator · `docs/data-intelligence.md`: add docinfer's `Extraction.WindowRunes`, which Bunrei
+  sets at `jobs`.
+- coordinator · roadmap backlog entries: picture metadata beyond EXIF (IPTC, maker notes, reverse
+  geocoding); rendering Skype conversation records (`MediaMailConversation`: topic, start, end,
+  missed) as metadata text; a note that go-ai's built-in chat-mode transcription instruction, which
+  docinfer sends when its transcription prompt is empty, is not in docinfer's transcription cache
+  key, so a go-ai change to it doesn't miss held transcripts; a Mikoshi prompt-tuning view over
+  Bunrei's prompt override Queries and Commands; appending several events atomically (JetStream
+  atomic batch publish, once nats.go has a client API); a Postgres `SKIP LOCKED` work-queue provider
+  that meets go-messaging's work-queue contract and conformance suite; docinfer cache retention;
+  extraction in cmd/docinfer.
