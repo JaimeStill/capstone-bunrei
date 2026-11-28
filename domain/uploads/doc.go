@@ -22,6 +22,10 @@
 //
 //   - [Service], built by [New]: the upload.Store, each method returning
 //     an error that matches fs.ErrNotExist for a missing upload.
+//   - [Routes]: the route group the composition root mounts, go-web-sdk's
+//     upload.Handler over the Service under /uploads, which hands each
+//     completed upload's file to the completion it is given and answers
+//     the completing request with the upload's ID.
 //   - [Reclaimer], from [Service.Reclaimer]: the expired uploads'
 //     go-database sweep.Reclaimer, which deletes their rows and leaves
 //     their objects to the upload prefix's expiry.

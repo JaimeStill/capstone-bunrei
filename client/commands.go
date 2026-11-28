@@ -18,11 +18,19 @@ type Submit struct {
 }
 
 // CompleteUpload is the CompleteUpload Command: a completed upload queued as one job, with a
-// profile and the same three optional extracts as [Submit].
+// profile and the same three optional extracts as [Submit]. A CompleteUpload repeating an upload
+// with the same profile and extracts returns the first job; with any of them different it is
+// refused with [ProblemSubmitConflict].
 type CompleteUpload struct {
 	Upload   string            `json:"upload"`  // the completed upload's ID
 	Profile  string            `json:"profile"` // a versioned processing profile
 	Extract  *docinfer.Extract `json:"extract,omitempty"`
 	Document *docinfer.Extract `json:"document,omitempty"`
 	Timeline *docinfer.Extract `json:"timeline,omitempty"`
+}
+
+// Upload is the final response of the request that completes an upload: the completed upload's
+// ID, which [CompleteUpload] names.
+type Upload struct {
+	ID string `json:"id"`
 }

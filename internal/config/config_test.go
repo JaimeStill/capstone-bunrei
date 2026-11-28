@@ -621,6 +621,9 @@ func TestUploads_FinalizeDefaults(t *testing.T) {
 	if got := u.ObjectAge(); got != 48*time.Hour {
 		t.Errorf("Uploads.ObjectAge() = %s, want 48h, twice the lifetime", got)
 	}
+	if got := *u.ChunkSize; got != 4<<20 {
+		t.Errorf("Uploads.ChunkSize = %d, want 4 MiB", got)
+	}
 	if u.Env != (config.UploadsEnv{}) {
 		t.Errorf("Uploads.Env = %+v, want empty under the empty prefix", u.Env)
 	}
@@ -645,6 +648,7 @@ func TestUploads_MergeOverlaysSetFields(t *testing.T) {
 
 func TestUploads_FinalizeEnvOverrides(t *testing.T) {
 	t.Setenv("BUNREI_UPLOADS_LIFETIME", "6h")
+	t.Setenv("BUNREI_UPLOADS_CHUNK_SIZE", "1048576")
 
 	cfg := configtest.Minimal()
 	if err := cfg.Finalize("bunrei"); err != nil {
@@ -654,26 +658,35 @@ func TestUploads_FinalizeEnvOverrides(t *testing.T) {
 	if got := cfg.Uploads.Lifetime.Duration(); got != 6*time.Hour {
 		t.Errorf("Uploads.Lifetime = %s, want 6h from BUNREI_UPLOADS_LIFETIME", got)
 	}
-	if got := cfg.Uploads.Env.Lifetime; got != "BUNREI_UPLOADS_LIFETIME" {
-		t.Errorf("Uploads.Env.Lifetime = %q, want BUNREI_UPLOADS_LIFETIME", got)
+	if got := *cfg.Uploads.ChunkSize; got != 1<<20 {
+		t.Errorf("Uploads.ChunkSize = %d, want 1 MiB from BUNREI_UPLOADS_CHUNK_SIZE", got)
+	}
+	want := config.UploadsEnv{Lifetime: "BUNREI_UPLOADS_LIFETIME", ChunkSize: "BUNREI_UPLOADS_CHUNK_SIZE"}
+	if cfg.Uploads.Env != want {
+		t.Errorf("Uploads.Env = %+v, want %+v", cfg.Uploads.Env, want)
 	}
 }
 
-func TestUploads_FinalizeRejectsInvalidLifetime(t *testing.T) {
-	for value, want := range map[string]string{
-		"0s":    "lifetime",
-		"-1h":   "lifetime",
-		"daily": "BUNREI_UPLOADS_LIFETIME",
+func TestUploads_FinalizeRejectsInvalidPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name, value, want string
+	}{
+		{"BUNREI_UPLOADS_LIFETIME", "0s", "lifetime"},
+		{"BUNREI_UPLOADS_LIFETIME", "-1h", "lifetime"},
+		{"BUNREI_UPLOADS_LIFETIME", "daily", "BUNREI_UPLOADS_LIFETIME"},
+		{"BUNREI_UPLOADS_CHUNK_SIZE", "0", "chunk_size"},
+		{"BUNREI_UPLOADS_CHUNK_SIZE", "-1", "chunk_size"},
+		{"BUNREI_UPLOADS_CHUNK_SIZE", "4MiB", "BUNREI_UPLOADS_CHUNK_SIZE"},
 	} {
-		t.Run(value, func(t *testing.T) {
-			t.Setenv("BUNREI_UPLOADS_LIFETIME", value)
+		t.Run(tc.name+"="+tc.value, func(t *testing.T) {
+			t.Setenv(tc.name, tc.value)
 
 			err := configtest.Minimal().Finalize("bunrei")
 			if err == nil {
-				t.Fatal("Finalize accepted an invalid upload lifetime")
+				t.Fatal("Finalize accepted an invalid upload policy")
 			}
-			if !strings.Contains(err.Error(), "uploads:") || !strings.Contains(err.Error(), want) {
-				t.Errorf("error = %v, want the uploads block wrap naming %s", err, want)
+			if !strings.Contains(err.Error(), "uploads:") || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %v, want the uploads block wrap naming %s", err, tc.want)
 			}
 		})
 	}

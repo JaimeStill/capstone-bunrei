@@ -3,20 +3,30 @@
 package integration_test
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+	"uuid"
 
+	"github.com/standards-lab/docinfer"
 	"github.com/standards-lab/go-storage"
 	"github.com/standards-lab/go-web-sdk/upload"
 	"github.com/standards-lab/go-web-sdk/upload/uploadtest"
+	"github.com/standards-lab/go-web-sdk/webtest"
 
+	"github.com/JaimeStill/capstone-bunrei/client"
 	"github.com/JaimeStill/capstone-bunrei/domain/uploads"
 	"github.com/JaimeStill/capstone-bunrei/integration"
 )
@@ -211,5 +221,143 @@ func TestUploads_ChunksAreObjectsTheRowsName(t *testing.T) {
 	}
 	if got := objectsUnder(t, r.objects, r.prefix+id+"/"); len(got) != 0 {
 		t.Errorf("objects after the delete = %v, want none", got)
+	}
+}
+
+type cutOff struct {
+	base    http.RoundTripper
+	patches atomic.Int32
+	at      int32
+}
+
+func (c *cutOff) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Method == http.MethodPatch && c.patches.Add(1) == c.at {
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			return nil, err
+		}
+		req = req.Clone(req.Context())
+		req.Body = io.NopCloser(io.MultiReader(bytes.NewReader(body[:len(body)/2]), failing{}))
+	}
+	return c.base.RoundTrip(req)
+}
+
+type failing struct{}
+
+func (failing) Read([]byte) (int, error) { return 0, errors.New("the connection dropped") }
+
+func composedStorage(t *testing.T) *storage.Store {
+	t.Helper()
+	a := integration.Compose(t)
+	n := a.Nodes()
+	sys, err := a.Graph().Build(n.Storage)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	store := sys.Get(n.Storage)
+	start(t, "storage", store)
+	return store
+}
+
+func uploadOffset(t *testing.T, location string) (int, int64) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodHead, location, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("HEAD %s: %v", location, err)
+	}
+	_ = res.Body.Close()
+	offset, _ := upload.ParseInteger(res.Header.Get("Upload-Offset"))
+	return res.StatusCode, offset
+}
+
+func TestUploads_AFileSentInChunksAndResumedQueuesAJob(t *testing.T) {
+	objects := composedStorage(t)
+	s := integration.Start(t, integration.Options{})
+	db := integration.Database(t)
+	ctx := context.Background()
+
+	const chunk = 16 << 10
+	file := bytes.Repeat([]byte("a scanned page of a large document. "), 3000)
+	raw := sha256.Sum256(file)
+	sum := hex.EncodeToString(raw[:])
+	cut := &cutOff{base: http.DefaultTransport, at: 3}
+	c := upload.Client{HTTP: &http.Client{Transport: cut}, Attempts: 1, ChunkSize: chunk}
+
+	res, err := c.Create(ctx, s.URL()+"/api/uploads", "application/pdf", "scan.pdf", bytes.NewReader(file))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := res.Send(ctx); err == nil {
+		t.Fatal("the first Send completed, want it cut off at its third append")
+	}
+	status, offset := uploadOffset(t, res.Location())
+	if status != http.StatusNoContent || offset != 2*chunk {
+		t.Fatalf("HEAD after the cut = %d at %d, want 204 at the two appends committed, %d", status, offset, 2*chunk)
+	}
+
+	final, err := res.Send(ctx)
+	if err != nil {
+		t.Fatalf("the resumed Send: %v", err)
+	}
+	defer func() { _ = final.Body.Close() }()
+	var completed client.Upload
+	if final.StatusCode != http.StatusOK || json.NewDecoder(final.Body).Decode(&completed) != nil {
+		t.Fatalf("the completing response = %s, want 200 with the upload", final.Status)
+	}
+	id := res.Location()[strings.LastIndex(res.Location(), "/")+1:]
+	if completed.ID != id {
+		t.Errorf("the completing response names upload %q, want %q", completed.ID, id)
+	}
+
+	if status, _ := uploadOffset(t, res.Location()); status != http.StatusNotFound {
+		t.Errorf("HEAD of the completed upload = %d, want 404", status)
+	}
+	if rows, chunks := uploadRows(t, db, "upload", "id", id), uploadRows(t, db, "upload_chunk", "upload_id", id); rows != 0 || chunks != 0 {
+		t.Errorf("upload rows %d, chunk rows %d after completion; want none", rows, chunks)
+	}
+	if got := objectsUnder(t, objects, "upload/"+id+"/"); len(got) != 0 {
+		t.Errorf("chunk objects after completion = %v, want none", got)
+	}
+	if _, err := objects.Stat(ctx, "input/"+sum[:2]+"/"+sum); err != nil {
+		t.Errorf("the staged input: %v", err)
+	}
+	if got := uploadRows(t, db, "completed_upload", "id", id); got != 1 {
+		t.Errorf("completed upload rows = %d, want 1", got)
+	}
+
+	req := client.CompleteUpload{
+		Profile: "standard@1",
+		Extract: &docinfer.Extract{Name: "invoice", Prompt: "The total.", Schema: []byte(`{"type":"object"}`)},
+	}
+	api := s.Client()
+	path := "/api/uploads/" + id + "/complete"
+	resp := api.Post(t, path, req)
+	j := webtest.Decode[client.Job](t, resp, http.StatusAccepted)
+	if j.State != client.StateQueued || j.SHA256 != sum || j.Size != int64(len(file)) || j.Name != "scan.pdf" {
+		t.Errorf("job = %+v, want it queued over the %d-byte file staged under %s", j, len(file), sum)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/api/jobs/"+j.ID {
+		t.Errorf("Location = %q, want /api/jobs/%s", loc, j.ID)
+	}
+	if got := webtest.Decode[client.Job](t, api.Get(t, "/api/jobs/"+j.ID), http.StatusOK); got != j {
+		t.Errorf("GetJob = %+v, want %+v", got, j)
+	}
+	if again := webtest.Decode[client.Job](t, api.Post(t, path, req), http.StatusAccepted); again != j {
+		t.Errorf("the repeat returned %+v, want the first job %+v", again, j)
+	}
+	req.Profile = "standard@2"
+	if p := api.Post(t, path, req).Problem(t, http.StatusConflict); p.Type != client.ProblemSubmitConflict {
+		t.Errorf("a repeat with another profile = %q, want %s", p.Type, client.ProblemSubmitConflict)
+	}
+	if p := api.Post(t, "/api/uploads/"+uuid.NewV4().String()+"/complete", req).Problem(t, http.StatusNotFound); p.Type != client.ProblemUploadNotFound {
+		t.Errorf("an unknown upload = %q, want %s", p.Type, client.ProblemUploadNotFound)
+	}
+
+	if code := s.Stop(t); code != 0 {
+		t.Fatalf("exit = %d, want 0:\n%s", code, s.Output())
 	}
 }

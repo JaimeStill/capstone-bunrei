@@ -62,7 +62,8 @@
     "max_size": 100
   },
   "uploads": {
-    "lifetime": "24h"
+    "lifetime": "24h",
+    "chunk_size": 4194304
   },
   "submissions": {
     "document_limit": 4194304,

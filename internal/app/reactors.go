@@ -57,6 +57,7 @@ func (n *Nodes) newSweeper(s *graph.Scope) (*sweep.Sweeper, error) {
 		{Name: "uploads", Reclaimer: s.Use(n.Uploads).Reclaimer(), Policy: policy},
 		{Name: "upload objects", Reclaimer: uploadObjects, Policy: policy},
 		{Name: "submissions", Reclaimer: s.Use(n.Submissions).Reclaimer(), Policy: policy},
+		{Name: "completed uploads", Reclaimer: s.Use(n.Submissions).UploadReclaimer(), Policy: policy},
 	}
 	return sweep.New(db, regs, cfg.ShutdownTimeout.Duration(), s.Use(n.Logger), sweep.Options{})
 }

@@ -28,9 +28,10 @@ func (n *Nodes) newUploads(s *graph.Scope) (*uploads.Service, error) {
 }
 
 func (n *Nodes) newSubmissions(s *graph.Scope) (*submissions.Service, error) {
-	policy := s.Use(n.Config).Submissions
+	cfg := s.Use(n.Config)
+	policy := cfg.Submissions
 	return submissions.New(s.Use(n.SQL), s.Use(n.Input), s.Use(n.Jobs), s.Use(n.WorkQueue),
-		*policy.DocumentLimit, policy.Retention.Duration()), nil
+		*policy.DocumentLimit, policy.Retention.Duration(), cfg.Uploads.Lifetime.Duration()), nil
 }
 
 func (n *Nodes) newOutputs(s *graph.Scope) (*outputs.Service, error) {
@@ -40,8 +41,12 @@ func (n *Nodes) newOutputs(s *graph.Scope) (*outputs.Service, error) {
 func mountAPI(s *graph.Scope, n *Nodes) *web.Group {
 	cfg, logger := s.Use(n.Config), s.Use(n.Logger)
 	api := web.NewGroup("/api")
-	api.Mount(submissions.Routes(s.Use(n.Submissions), cfg.Server.Transfer, logger))
+	submit := s.Use(n.Submissions)
+	api.Mount(submissions.Routes(submit, cfg.Server.Transfer, logger))
 	api.Mount(jobs.Routes(s.Use(n.Jobs), logger))
-	api.Mount(outputs.Routes(s.Use(n.Outputs), logger))
+	api.Mount(outputs.Routes(s.Use(n.Outputs), cfg.Server.Transfer, logger))
+	api.Mount(uploads.Routes(s.Use(n.Uploads), submit.Complete, cfg.Server.Transfer(*cfg.Uploads.ChunkSize),
+		cfg.Uploads.Lifetime.Duration(), logger))
+	api.Mount(submissions.UploadRoutes(submit, cfg.Server.Transfer, logger))
 	return api
 }

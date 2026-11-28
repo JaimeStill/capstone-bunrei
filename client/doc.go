@@ -14,7 +14,8 @@
 // The Commands:
 //
 //   - [Submit]: a whole document queued as a job under the caller's idempotency ID;
-//   - [CompleteUpload]: a completed upload queued as a job.
+//   - [CompleteUpload]: a completed upload queued as a job, named by the [Upload] its completing
+//     request answers.
 //
 // The data of the job's events, each bunrei.job. followed by the event's name:
 //
@@ -25,7 +26,8 @@
 //
 // A refusal is an RFC 9457 problem whose type is [ProblemPrefix] followed by its name:
 // [ProblemInvalidRequest], [ProblemContentTooLarge], [ProblemExtractionTooLarge],
-// [ProblemSubmitConflict], [ProblemJobNotFound], [ProblemJobEnded], and [ProblemOutputNotFound].
+// [ProblemSubmitConflict], [ProblemJobNotFound], [ProblemJobEnded], [ProblemOutputNotFound], and
+// [ProblemUploadNotFound].
 //
 // Each type's JSON is its wire shape, with snake_case member names, at the wire version
 // [Version].

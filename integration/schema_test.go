@@ -18,7 +18,7 @@ func TestSchema_StartupAppliesTheLibraryAndBunreiSets(t *testing.T) {
 		"docproc_schema_version", "docproc_entry", "docproc_item",
 		"docinfer_schema_version", "docinfer_cache",
 		"messaging_schema_version", "messaging_outbox", "messaging_inbox",
-		"schema_version", "upload", "upload_chunk", "submission",
+		"schema_version", "upload", "upload_chunk", "submission", "completed_upload",
 	}
 	for _, table := range tables {
 		var exists bool

@@ -10,8 +10,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/standards-lab/go-web-sdk"
+	"github.com/standards-lab/sqlate/sqltest"
 
 	"github.com/JaimeStill/capstone-bunrei/client"
 	"github.com/JaimeStill/capstone-bunrei/domain/submissions"
@@ -22,6 +24,7 @@ func serve(t *testing.T, f *fixture) *httptest.Server {
 	transfer := func(limit int64) web.Transfer { return web.NewTransfer(limit, 1<<20, time.Second) }
 	api := web.NewGroup("/api")
 	api.Mount(submissions.Routes(f.service, transfer, slog.New(slog.DiscardHandler)))
+	api.Mount(submissions.UploadRoutes(f.service, transfer, slog.New(slog.DiscardHandler)))
 	router := web.NewRouter()
 	router.Mount(web.NewModule(api))
 	srv := httptest.NewServer(router)
@@ -31,7 +34,12 @@ func serve(t *testing.T, f *fixture) *httptest.Server {
 
 func post(t *testing.T, srv *httptest.Server, body []byte) *http.Response {
 	t.Helper()
-	resp, err := http.Post(srv.URL+"/api/jobs", "application/json", bytes.NewReader(body))
+	return postTo(t, srv, "/api/jobs", body)
+}
+
+func postTo(t *testing.T, srv *httptest.Server, path string, body []byte) *http.Response {
+	t.Helper()
+	resp, err := http.Post(srv.URL+path, "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}
@@ -129,4 +137,77 @@ func TestRoutes_ADifferentRequestUnderAnIDIsAConflictProblem(t *testing.T) {
 	req.Name = "other.json"
 
 	problem(t, post(t, srv, must(json.Marshal(req))), http.StatusConflict, client.ProblemSubmitConflict)
+}
+
+func TestUploadRoutes_CompleteUploadAnswersTheQueuedJob(t *testing.T) {
+	f := newFixture(t)
+	up := file("a large scanned document")
+	req := completeRequest(up)
+	job := uuid.NewV7().String()
+	f.completed(up, nil, nil)
+	f.assigned(up, 1, job, digestOf(queuedOf(up, req)))
+	req.Upload = ""
+
+	resp := postTo(t, serve(t, f), "/api/uploads/"+up.ID+"/complete", must(json.Marshal(req)))
+	if resp.StatusCode != http.StatusAccepted {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 202; body %s", resp.StatusCode, b)
+	}
+	var j client.Job
+	if err := json.NewDecoder(resp.Body).Decode(&j); err != nil {
+		t.Fatalf("decode the job: %v", err)
+	}
+	if j.ID != job || j.State != client.StateQueued || j.SHA256 != up.Digest {
+		t.Errorf("job = %+v, want %s queued over the staged file", j, job)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/api/jobs/"+job {
+		t.Errorf("Location = %q, want /api/jobs/%s", loc, job)
+	}
+}
+
+func TestUploadRoutes_RefusalsAreBunreiProblems(t *testing.T) {
+	up := file("a document")
+	for _, tc := range []struct {
+		name   string
+		script func(*fixture)
+		body   func() []byte
+		status int
+		typ    string
+	}{
+		{"a body that is not JSON", nil, func() []byte { return []byte("{") }, http.StatusBadRequest, client.ProblemInvalidRequest},
+		{"a body naming another upload", nil, func() []byte {
+			r := completeRequest(up)
+			r.Upload = uuid.NewV4().String()
+			return must(json.Marshal(r))
+		}, http.StatusBadRequest, client.ProblemInvalidRequest},
+		{"an empty profile", nil, func() []byte {
+			r := completeRequest(up)
+			r.Profile = ""
+			return must(json.Marshal(r))
+		}, http.StatusBadRequest, client.ProblemInvalidRequest},
+		{"extracts past the cap", nil, func() []byte {
+			r := completeRequest(up)
+			r.Document = extract(strings.Repeat("x", submissions.ExtractionLimit))
+			return must(json.Marshal(r))
+		}, http.StatusRequestEntityTooLarge, client.ProblemExtractionTooLarge},
+		{"an unknown upload", func(f *fixture) { f.rec.Queue(sqltest.Response{Columns: completedColumns}) }, func() []byte {
+			return must(json.Marshal(completeRequest(up)))
+		}, http.StatusNotFound, client.ProblemUploadNotFound},
+		{"a different request", func(f *fixture) { f.completed(up, uuid.NewV7().String(), "another digest") }, func() []byte {
+			return must(json.Marshal(completeRequest(up)))
+		}, http.StatusConflict, client.ProblemSubmitConflict},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			if tc.script != nil {
+				tc.script(f)
+			}
+			problem(t, postTo(t, serve(t, f), "/api/uploads/"+up.ID+"/complete", tc.body()), tc.status, tc.typ)
+		})
+	}
+	f := newFixture(t)
+	req := completeRequest(up)
+	req.Upload = ""
+	problem(t, postTo(t, serve(t, f), "/api/uploads/upload-1/complete", must(json.Marshal(req))),
+		http.StatusBadRequest, client.ProblemInvalidRequest)
 }

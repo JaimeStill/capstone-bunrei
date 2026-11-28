@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"strings"
 	"time"
@@ -16,22 +17,24 @@ import (
 	docstorage "github.com/standards-lab/docproc/storage"
 	"github.com/standards-lab/go-core/event"
 	"github.com/standards-lab/go-messaging"
+	"github.com/standards-lab/go-web-sdk/upload"
 	"github.com/standards-lab/sqlate"
 
 	"github.com/JaimeStill/capstone-bunrei/client"
 	"github.com/JaimeStill/capstone-bunrei/domain/jobs"
 )
 
-// ExtractionLimit is the most bytes a Submit's three extracts may marshal to together, so the
-// queued event that carries them stays within NATS's 1 MB max_payload.
+// ExtractionLimit is the most bytes a Submit's or a CompleteUpload's three extracts may marshal
+// to together, so the queued event that carries them stays within NATS's 1 MB max_payload.
 const ExtractionLimit = 256 << 10
 
 const maxID = 255
 
 var errQueued = errors.New("the job is already queued")
 
-// Service is Submit: it stages a whole document under its SHA-256, appends the job's queued
-// event, and puts the job on the work queue, idempotently per the caller's ID.
+// Service is Submit and the upload's two steps, Complete and CompleteUpload: it stages a
+// document under its SHA-256, appends the job's queued event, and puts the job on the work
+// queue, idempotently per the caller's ID or per the upload.
 type Service struct {
 	store     *store
 	input     *docstorage.Content
@@ -39,15 +42,17 @@ type Service struct {
 	queue     messaging.Queue
 	limit     int64
 	retention time.Duration
+	lifetime  time.Duration
 }
 
-// New constructs the service over db, the session the submission table is migrated in; input,
-// the store a job's input is staged in by its SHA-256; root, the job root the queued event is
-// appended through; and queue, the work queue. limit is the small-document limit in bytes, and
-// retention how long a submission record holds its ID. Construction compiles the statements and
-// performs no I/O. A nil dependency, or a limit or retention that is not positive, is a wiring
-// defect and panics.
-func New(db *sqlate.DB, input *docstorage.Content, root *jobs.Service, queue messaging.Queue, limit int64, retention time.Duration) *Service {
+// New constructs the service over db, the session the submission and completed_upload tables
+// are migrated in; input, the store a job's input is staged in by its SHA-256; root, the job
+// root the queued event is appended through; and queue, the work queue. limit is the
+// small-document limit in bytes, retention how long a submission record holds its ID, and
+// lifetime how long a completed upload's record stays from its completion. Construction
+// compiles the statements and performs no I/O. A nil dependency, or a limit, retention, or
+// lifetime that is not positive, is a wiring defect and panics.
+func New(db *sqlate.DB, input *docstorage.Content, root *jobs.Service, queue messaging.Queue, limit int64, retention, lifetime time.Duration) *Service {
 	switch {
 	case db == nil:
 		panic("submissions: nil db")
@@ -61,8 +66,10 @@ func New(db *sqlate.DB, input *docstorage.Content, root *jobs.Service, queue mes
 		panic(fmt.Sprintf("submissions: limit must be positive, got %d", limit))
 	case retention <= 0:
 		panic(fmt.Sprintf("submissions: retention must be positive, got %s", retention))
+	case lifetime <= 0:
+		panic(fmt.Sprintf("submissions: lifetime must be positive, got %s", lifetime))
 	}
-	return &Service{store: newStore(db), input: input, jobs: root, queue: queue, limit: limit, retention: retention}
+	return &Service{store: newStore(db), input: input, jobs: root, queue: queue, limit: limit, retention: retention, lifetime: lifetime}
 }
 
 // Limit returns the small-document limit, the most bytes a submitted document may decode to.
@@ -88,12 +95,10 @@ func (s *Service) Submit(ctx context.Context, req client.Submit) (client.Job, er
 	if err != nil {
 		return client.Job{}, err
 	}
-	data, err := json.Marshal(queued)
+	data, want, err := minted(queued)
 	if err != nil {
 		return client.Job{}, fmt.Errorf("submit %q: %w", req.ID, err)
 	}
-	sum := sha256.Sum256(data)
-	want := record{Job: uuid.NewV7().String(), Digest: hex.EncodeToString(sum[:])}
 	held, err := s.store.claim(ctx, req.ID, want, time.Now().Add(s.retention))
 	if err != nil {
 		return client.Job{}, err
@@ -104,20 +109,73 @@ func (s *Service) Submit(ctx context.Context, req client.Submit) (client.Job, er
 	if err := s.input.Put(ctx, queued.SHA256, bytes.NewReader(req.Content)); err != nil {
 		return client.Job{}, fmt.Errorf("stage job %s: %w", held.Job, err)
 	}
-	j, err := s.append(ctx, held.Job, data)
+	return s.enqueue(ctx, held.Job, data)
+}
+
+// Complete is the upload handler's completion of f: it stages content, the whole file, under
+// f's SHA-256 in the input store, then records the completed upload under f's ID with the
+// file's SHA-256, name, media type, and size, expiring a lifetime from now. It is idempotent on
+// f.ID: of two completions of one upload, each stages the same bytes under the same key, and the
+// second's record finds the first's in place and leaves it.
+func (s *Service) Complete(ctx context.Context, f upload.File, content io.Reader) error {
+	if err := s.input.Put(ctx, f.Digest, content); err != nil {
+		return fmt.Errorf("stage upload %s: %w", f.ID, err)
+	}
+	q := client.Queued{Name: f.Name, MediaType: f.MediaType, Size: f.Length, SHA256: f.Digest}
+	return s.store.recordCompleted(ctx, f.ID, q, time.Now().Add(s.lifetime))
+}
+
+// CompleteUpload queues the completed upload req names as a job, with req's profile and
+// extracts, and returns the job. It refuses a request missing its profile, or whose upload is
+// not a UUID, with ErrInvalid; extracts that marshal past [ExtractionLimit] together with
+// ErrExtractionTooLarge; and an upload with no unexpired completed record with
+// ErrUploadNotFound.
+//
+// The job's queued event has Submit's shape, its input the completed upload's staged file. The
+// first CompleteUpload of an upload records a new UUIDv7 job and a digest of the request on the
+// upload's record, then appends the job's queued event and enqueues its work event as Submit
+// does. A CompleteUpload repeating the upload with the same profile and extracts returns that
+// job, doing again the append and the enqueue, which find their work done; with a different
+// profile or extracts it is ErrConflict. Of concurrent CompleteUploads of one upload, one
+// records its job and the others read it.
+func (s *Service) CompleteUpload(ctx context.Context, req client.CompleteUpload) (client.Job, error) {
+	id, err := uuid.Parse(req.Upload)
+	if err != nil {
+		return client.Job{}, fmt.Errorf("%w: upload %q is not a UUID", ErrInvalid, req.Upload)
+	}
+	x := extracts{req.Extract, req.Document, req.Timeline}
+	if err := options(req.Profile, x); err != nil {
+		return client.Job{}, err
+	}
+	key := id.String()
+	c, err := s.store.completedUpload(ctx, key)
 	if err != nil {
 		return client.Job{}, err
 	}
-	if j.State == client.StateQueued {
-		e, err := work(held.Job, time.Now())
-		if err == nil {
-			err = s.queue.Enqueue(ctx, e)
-		}
-		if err != nil {
-			return client.Job{}, fmt.Errorf("enqueue job %s: %w", held.Job, err)
-		}
+	queued := client.Queued{
+		Profile:   req.Profile,
+		Name:      c.Name,
+		MediaType: c.MediaType,
+		Size:      c.Size,
+		SHA256:    c.SHA256,
+		Extract:   req.Extract,
+		Document:  req.Document,
+		Timeline:  req.Timeline,
 	}
-	return j.Job, nil
+	data, want, err := minted(queued)
+	if err != nil {
+		return client.Job{}, fmt.Errorf("complete upload %s: %w", key, err)
+	}
+	held := want
+	if c.Job != nil && c.Digest != nil {
+		held = record{Job: *c.Job, Digest: *c.Digest}
+	} else if held, err = s.store.assignJob(ctx, key, want); err != nil {
+		return client.Job{}, err
+	}
+	if held.Digest != want.Digest {
+		return client.Job{}, fmt.Errorf("%w: upload %s", ErrConflict, key)
+	}
+	return s.enqueue(ctx, held.Job, data)
 }
 
 func (s *Service) check(req client.Submit) (client.Queued, error) {
@@ -126,8 +184,6 @@ func (s *Service) check(req client.Submit) (client.Queued, error) {
 		return client.Queued{}, fmt.Errorf("%w: the ID is required", ErrInvalid)
 	case len(req.ID) > maxID:
 		return client.Queued{}, fmt.Errorf("%w: the ID is %d bytes, past %d", ErrInvalid, len(req.ID), maxID)
-	case req.Profile == "":
-		return client.Queued{}, fmt.Errorf("%w: the profile is required", ErrInvalid)
 	}
 	if mediaType, _, err := mime.ParseMediaType(req.MediaType); err != nil || !strings.Contains(mediaType, "/") {
 		return client.Queued{}, fmt.Errorf("%w: media type %q is not type/subtype", ErrInvalid, req.MediaType)
@@ -135,12 +191,8 @@ func (s *Service) check(req client.Submit) (client.Queued, error) {
 	if n := int64(len(req.Content)); n > s.limit {
 		return client.Queued{}, fmt.Errorf("%w: %d bytes, past %d", ErrContentTooLarge, n, s.limit)
 	}
-	x, err := json.Marshal(extracts{req.Extract, req.Document, req.Timeline})
-	if err != nil {
-		return client.Queued{}, fmt.Errorf("%w: %w", ErrInvalid, err)
-	}
-	if len(x) > ExtractionLimit {
-		return client.Queued{}, fmt.Errorf("%w: %d bytes, past %d", ErrExtractionTooLarge, len(x), ExtractionLimit)
+	if err := options(req.Profile, extracts{req.Extract, req.Document, req.Timeline}); err != nil {
+		return client.Queued{}, err
 	}
 	sum := sha256.Sum256(req.Content)
 	return client.Queued{
@@ -153,6 +205,46 @@ func (s *Service) check(req client.Submit) (client.Queued, error) {
 		Document:  req.Document,
 		Timeline:  req.Timeline,
 	}, nil
+}
+
+func options(profile string, x extracts) error {
+	if profile == "" {
+		return fmt.Errorf("%w: the profile is required", ErrInvalid)
+	}
+	b, err := json.Marshal(x)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
+	if len(b) > ExtractionLimit {
+		return fmt.Errorf("%w: %d bytes, past %d", ErrExtractionTooLarge, len(b), ExtractionLimit)
+	}
+	return nil
+}
+
+func minted(q client.Queued) ([]byte, record, error) {
+	data, err := json.Marshal(q)
+	if err != nil {
+		return nil, record{}, err
+	}
+	sum := sha256.Sum256(data)
+	return data, record{Job: uuid.NewV7().String(), Digest: hex.EncodeToString(sum[:])}, nil
+}
+
+func (s *Service) enqueue(ctx context.Context, job string, data []byte) (client.Job, error) {
+	j, err := s.append(ctx, job, data)
+	if err != nil {
+		return client.Job{}, err
+	}
+	if j.State == client.StateQueued {
+		e, err := work(job, time.Now())
+		if err == nil {
+			err = s.queue.Enqueue(ctx, e)
+		}
+		if err != nil {
+			return client.Job{}, fmt.Errorf("enqueue job %s: %w", job, err)
+		}
+	}
+	return j.Job, nil
 }
 
 func (s *Service) append(ctx context.Context, id string, data []byte) (jobs.Job, error) {
@@ -172,20 +264,25 @@ func (s *Service) append(ctx context.Context, id string, data []byte) (jobs.Job,
 // Reclaimer returns the expired submission records' reclaimer over the service's store, which
 // go-database's sweeper runs.
 func (s *Service) Reclaimer() *Reclaimer {
-	return &Reclaimer{store: s.store}
+	return &Reclaimer{pass: s.store.reclaimExpired}
 }
 
-// Reclaimer is the expired submission records' reclaimer, a go-database sweep.Reclaimer, which
-// it satisfies structurally: each pass deletes records past their expiry, by the database's
-// clock.
+// UploadReclaimer returns the expired completed upload records' reclaimer over the service's
+// store, which go-database's sweeper runs.
+func (s *Service) UploadReclaimer() *Reclaimer {
+	return &Reclaimer{pass: s.store.reclaimCompleted}
+}
+
+// Reclaimer is a reclaimer of expired records, a go-database sweep.Reclaimer, which it
+// satisfies structurally: each pass deletes records of its table past their expiry, by the
+// database's clock.
 type Reclaimer struct {
-	store *store
+	pass func(ctx context.Context, budget int) (int64, error)
 }
 
-// Pass deletes at most budget expired submission records, earliest expiry first, and reports
-// more when it deleted budget of them, so a further pass may find more. A budget below 1 is an
-// error.
+// Pass deletes at most budget expired records, earliest expiry first, and reports more when it
+// deleted budget of them, so a further pass may find more. A budget below 1 is an error.
 func (r *Reclaimer) Pass(ctx context.Context, budget int) (more bool, err error) {
-	n, err := r.store.reclaimExpired(ctx, budget)
+	n, err := r.pass(ctx, budget)
 	return err == nil && n >= int64(budget), err
 }

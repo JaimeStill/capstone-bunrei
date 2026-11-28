@@ -9,6 +9,8 @@
 //
 // The set holds the upload table, one row per resumable upload in
 // progress; the upload_chunk table, one row per committed chunk naming the
-// object that holds its bytes; and the submission table, one idempotency
-// record per Submit ID naming the job it queued.
+// object that holds its bytes; the submission table, one idempotency
+// record per Submit ID naming the job it queued; and the completed_upload
+// table, one record per completed upload naming its staged file and, once
+// CompleteUpload queues it, its job.
 package schema

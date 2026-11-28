@@ -69,8 +69,9 @@ type Nodes struct {
 	// store over the sql and the storage; Submit over the sql, the input,
 	// the job root, and the work queue; and GetOutput over the content,
 	// each ordered after the schema as every domain node is. Submit, the
-	// job root, and GetOutput mount their routes, and the sweeper Uses the
-	// uploads store and Submit for their reclaimers.
+	// job root, GetOutput, and the uploads store mount their routes, the
+	// uploads store's completing Submit's Complete, and the sweeper Uses
+	// the uploads store and Submit for their reclaimers.
 	Jobs        *graph.Node[*jobs.Service]
 	Uploads     *graph.Node[*uploads.Service]
 	Submissions *graph.Node[*submissions.Service]
@@ -83,7 +84,8 @@ type Nodes struct {
 	// docproc's index retention, go-messaging's outbox and inbox
 	// retention, the expiry of the content and input prefixes, the uploads
 	// store's reclaimer of expired uploads, the expiry of the upload
-	// prefix, and Submit's reclaimer of expired submission records. It
+	// prefix, and Submit's reclaimers of expired submission records and
+	// expired completed upload records. It
 	// orders itself after the schema, so its passes find the tables the
 	// migrations create.
 	Reactors *graph.Group

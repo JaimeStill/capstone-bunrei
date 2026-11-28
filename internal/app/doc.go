@@ -120,14 +120,20 @@
 // domain node orders itself after the schema. The submissions node Uses
 // it. The uploads node is domain/uploads's Service,
 // go-web-sdk's upload.Store over the sql and the storage, its chunks under
-// the objects block's upload prefix; it mounts no routes yet, and the
-// sweeper Uses it for its reclaimer. The submissions node is
-// domain/submissions's Service, Submit, over the sql, the input, the job
+// the objects block's upload prefix; it mounts /api/uploads, go-web-sdk's
+// upload handler, with the server block's Transfer at the uploads block's
+// chunk size and the uploads block's lifetime, each completed upload
+// handed to the submissions node's Complete, and the sweeper Uses it for
+// its reclaimer. The submissions node is domain/submissions's Service,
+// Submit, Complete, and CompleteUpload, over the sql, the input, the job
 // root, and the work queue, handed the submissions block's small-document
-// limit and retention; it mounts /api/jobs, and the sweeper Uses it for
-// its reclaimer. The jobs node mounts /api/jobs/{id}, GetJob, and
-// /api/jobs/{id}/cancel, CancelJob. The outputs node is domain/outputs's
-// Service, GetOutput, over the content; it mounts /api/outputs/{sha256}.
+// limit and retention and the uploads block's lifetime; it mounts
+// /api/jobs, Submit, and /api/uploads/{id}/complete, CompleteUpload, and
+// the sweeper Uses it for its two reclaimers. The jobs node mounts
+// /api/jobs/{id}, GetJob, and /api/jobs/{id}/cancel, CancelJob. The
+// outputs node is domain/outputs's Service, GetOutput, over the content;
+// it mounts /api/outputs/{sha256}, handed the server block's Transfer for
+// the write deadline of the content it streams.
 // A package that does own a
 // resource and run belongs in the infrastructure layer, if it is built once
 // at startup, or the reactors layer, if it reacts to an external occurrence
@@ -157,7 +163,7 @@
 // failure.
 //
 // The sweeper is the service's one reactor: go-database's sweep.Sweeper,
-// its interval and pass budget from the sweep block, over eight
+// its interval and pass budget from the sweep block, over nine
 // reclaimers, each under its own advisory lock: index, docproc's index
 // retention at the block's index_age; outbox and inbox, go-messaging's
 // retention of the published outbox rows and the handled inbox rows at
@@ -166,8 +172,10 @@
 // prefixes, at content_age and input_age; uploads, the uploads node's
 // reclaimer of the expired uploads' rows; upload objects, an
 // expiry.Reclaimer over the upload prefix at twice the uploads block's
-// lifetime; and submissions, the submissions node's reclaimer of the
-// expired submission records. It Uses the sql, the storage, and the
+// lifetime; submissions, the submissions node's reclaimer of the expired
+// submission records; and completed uploads, its reclaimer of the
+// completed upload records past the uploads block's lifetime. It Uses the
+// sql, the storage, and the
 // uploads and submissions nodes and
 // orders itself after the schema, so its first pass finds the migrated
 // tables and a started store.

@@ -6,7 +6,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/standards-lab/go-web-sdk"
 
@@ -14,15 +16,37 @@ import (
 	"github.com/JaimeStill/capstone-bunrei/domain/outputs"
 )
 
+const (
+	rate  = 1 << 20
+	grace = time.Second
+)
+
+func router(f *fixture) *web.Router {
+	transfer := func(limit int64) web.Transfer { return web.NewTransfer(limit, rate, grace) }
+	api := web.NewGroup("/api")
+	api.Mount(outputs.Routes(f.service, transfer, slog.New(slog.DiscardHandler)))
+	r := web.NewRouter()
+	r.Mount(web.NewModule(api))
+	return r
+}
+
 func serve(t *testing.T, f *fixture) *httptest.Server {
 	t.Helper()
-	api := web.NewGroup("/api")
-	api.Mount(outputs.Routes(f.service, slog.New(slog.DiscardHandler)))
-	router := web.NewRouter()
-	router.Mount(web.NewModule(api))
-	srv := httptest.NewServer(router)
+	srv := httptest.NewServer(router(f))
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+type deadlines struct {
+	*httptest.ResponseRecorder
+	set []time.Time
+	at  []int
+}
+
+func (d *deadlines) SetWriteDeadline(t time.Time) error {
+	d.set = append(d.set, t)
+	d.at = append(d.at, d.Body.Len())
+	return nil
 }
 
 func call(t *testing.T, method, url string, header ...string) *http.Response {
@@ -89,5 +113,40 @@ func TestRoutes_RefusalsAreBunreiProblems(t *testing.T) {
 	problem(t, call(t, http.MethodGet, srv.URL+"/api/outputs/ab12"), http.StatusBadRequest, client.ProblemInvalidRequest)
 	if resp := call(t, http.MethodHead, srv.URL+"/api/outputs/"+sum("never stored")); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("HEAD of an absent output = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestRoutes_GetOutputExtendsTheWriteDeadlineAsTheBodyFlows(t *testing.T) {
+	f := newFixture(t)
+	body := strings.Repeat("x", 200<<10)
+	s := f.put(t, body)
+	w := &deadlines{ResponseRecorder: httptest.NewRecorder()}
+
+	before := time.Now()
+	router(f).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/outputs/"+s, nil))
+	after := time.Now()
+
+	if w.Code != http.StatusOK || w.Body.String() != body {
+		t.Fatalf("status %d with %d bytes, want 200 with the %d stored", w.Code, w.Body.Len(), len(body))
+	}
+	if len(w.set) < 4 {
+		t.Fatalf("set the write deadline %d times for %d bytes, want once per 64 KiB or less", len(w.set), len(body))
+	}
+	for i, at := range w.at {
+		if i > 0 && at <= w.at[i-1] {
+			t.Errorf("deadline %d set after %d bytes, deadline %d after %d; want each after more of the body", i, at, i-1, w.at[i-1])
+		}
+		next := len(body)
+		if i+1 < len(w.at) {
+			next = w.at[i+1]
+		}
+		piece := next - at
+		if piece > 64<<10 {
+			t.Errorf("deadline %d covers %d bytes, want at most 64 KiB", i, piece)
+		}
+		allowed := grace + time.Duration(piece)*time.Second/rate
+		if d := w.set[i]; d.Before(before.Add(allowed)) || d.After(after.Add(allowed)) {
+			t.Errorf("deadline %d = %s past the request, want the grace plus %d bytes at the rate, %s", i, d.Sub(before), piece, allowed)
+		}
 	}
 }
