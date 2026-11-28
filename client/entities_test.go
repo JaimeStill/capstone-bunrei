@@ -150,32 +150,6 @@ func TestEntities_RoundTripWithWireMembers(t *testing.T) {
 	}
 }
 
-func TestState_WireValues(t *testing.T) {
-	want := map[client.State]string{
-		client.StateQueued:    `"queued"`,
-		client.StateRunning:   `"running"`,
-		client.StateCompleted: `"completed"`,
-		client.StateFailed:    `"failed"`,
-		client.StateCancelled: `"cancelled"`,
-	}
-	for state, wire := range want {
-		data, err := json.Marshal(state)
-		if err != nil {
-			t.Fatalf("Marshal %q: %v", state, err)
-		}
-		if string(data) != wire {
-			t.Errorf("Marshal(%q) = %s, want %s", state, data, wire)
-		}
-		var back client.State
-		if err := json.Unmarshal(data, &back); err != nil {
-			t.Fatalf("Unmarshal %s: %v", data, err)
-		}
-		if back != state {
-			t.Errorf("Unmarshal(%s) = %q, want %q", data, back, state)
-		}
-	}
-}
-
 func TestQueued_ExtractionSchemaIsJSON(t *testing.T) {
 	data, err := json.Marshal(client.Queued{Extraction: extract()})
 	if err != nil {

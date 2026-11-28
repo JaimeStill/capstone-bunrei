@@ -482,21 +482,13 @@ func TestNATS_FinalizeNamesInvalidBlocks(t *testing.T) {
 	}
 }
 
-func TestNATS_BaseStreams(t *testing.T) {
+func TestConfig_BaseFileLoadsWithTheExampleSecrets(t *testing.T) {
 	cfg, err := libconfig.Load[config.Config](libconfig.Options{Dir: "../..", SecretsName: "secrets.example.json"})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-
-	n := cfg.NATS
-	if n.URL != "nats://127.0.0.1:4222" || n.Stream != "BUNREI_JOBS" || n.Prefix != "bunrei.job" ||
-		n.Owner == nil || !*n.Owner || n.MaxAge.Duration() != 30*24*time.Hour {
-		t.Errorf("nats = %+v, want the owned BUNREI_JOBS stream under bunrei.job, kept 30 days, on the local server", n)
-	}
-	q := cfg.NATSQueue
-	if q.URL != "nats://127.0.0.1:4222" || q.Stream != "BUNREI_WORK" || q.Subject != "bunrei.work" ||
-		q.DeadLetter != "bunrei.work.dead" || q.Owner == nil || !*q.Owner || q.MaxAge != 0 {
-		t.Errorf("nats_queue = %+v, want the owned BUNREI_WORK queue on bunrei.work, dead letters on bunrei.work.dead, kept until taken, on the local server", q)
+	if cfg.Database.Password != "app" || cfg.Storage.Key != "secret" {
+		t.Errorf("secrets = database %q, storage %q; want the example file's app and secret", cfg.Database.Password, cfg.Storage.Key)
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/standards-lab/go-web-sdk"
+	mw "github.com/standards-lab/go-web-sdk/middleware"
 	"github.com/standards-lab/go-web-sdk/webtest"
 
 	"github.com/JaimeStill/capstone-bunrei/integration"
@@ -46,8 +47,8 @@ func assertProbeHeaders(t *testing.T, probe string, r *webtest.Response) {
 	if cc := r.Header.Get("Cache-Control"); cc != "no-store" {
 		t.Errorf("%s Cache-Control = %q, want no-store", probe, cc)
 	}
-	if id := r.Header.Get("X-Request-Id"); id == "" {
-		t.Errorf("%s carries no X-Request-Id; RequestID is not wired", probe)
+	if id := r.Header.Get(mw.RequestIDHeader); id == "" {
+		t.Errorf("%s carries no %s; RequestID is not wired", probe, mw.RequestIDHeader)
 	}
 }
 
