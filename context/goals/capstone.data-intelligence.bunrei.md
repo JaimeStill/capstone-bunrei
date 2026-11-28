@@ -1,8 +1,8 @@
 # goal · capstone.data-intelligence.bunrei
 
-- **State:** brief ready
-- **Task:** api
-- **Branch:** api
+- **State:** idle
+- **Task:** none
+- **Branch:** none
 
 ## Tasks
 
@@ -14,116 +14,12 @@
 6. [x] messaging-work-queue
 7. [x] state
 8. [x] document-extraction
-9. [ ] api
+9. [x] api
 10. [ ] jobs
 11. [ ] prompts
 12. [ ] event-stream
 13. [ ] tool-packaging
 14. [ ] foundation-notes
-
-## Task brief · capstone.data-intelligence.bunrei · api
-
-**Problem**
-
-Bunrei holds the job root and its stores but serves no API: no caller can submit a document,
-upload a large one, read a job, or cancel it, and Mikoshi has no `client` release to import. This
-task serves the protocol's Commands and job Queries, mounts go-web-sdk's resumable upload over
-Bunrei's blob storage, and releases the `client` module as `client/v0.1.0`.
-
-**Behaviors**
-
-1. **Current dependencies.** Bunrei and its `client` module build on docinfer v0.6.0,
-   docinfer/postgres v0.1.4, go-core v0.14.0 and go-web-sdk v0.20.0.
-2. **Bunrei's schema.** At startup Bunrei applies its own migration set after the three it
-   applies today, creating its upload, completed-upload and submission tables.
-3. **The upload store.** Bunrei's `upload.Store` passes go-web-sdk's `uploadtest` suite against
-   PostgreSQL and blob storage. An upload is one row (metadata, offset, length, hash state,
-   expiry); each committed chunk is an object under `upload/<upload>/<offset>/<append id>` whose
-   key its chunk row records. Of two appends racing at one offset, one commits and the other's
-   object never reads back. A missing or expired upload matches `fs.ErrNotExist`.
-4. **Submit.** Submit takes a JSON body, `client.Submit`'s own JSON, with the content base64.
-   It stages the content under `input/` by its SHA-256, appends `queued` (profile, name, media
-   type, size, SHA-256, and the per-source, document and timeline extracts, each optional) to a
-   new UUIDv7 job, enqueues `{"job"}` on BUNREI_WORK, and returns the job, `queued`. Content past
-   the small-document limit (4 MiB, a setting) is refused 413; extracts that marshal past 256 KiB
-   together are refused; an empty profile is refused. `application/json` content is a record and
-   is accepted like any file.
-5. **Submit is idempotent.** A Submit repeating an ID with an identical request (profile, name,
-   media type, content SHA-256, extracts) returns the first job, completing any step a crash left
-   undone, and its re-enqueue is stored once. The same ID with a different request is refused
-   409. Concurrent Submits of one ID yield one job. The record is kept 30 days (a setting), then
-   swept.
-6. **GetJob** returns the job its events fold to; an unknown or invalid ID is 404 or 400.
-7. **CancelJob** appends `cancel_requested`; when the job is still `queued`, it then appends
-   `cancelled`, caused by it, and GetJob reads `cancelled`. An ended job is refused 409. Each
-   append is guarded by the expected sequence.
-8. **GetOutput** streams the content stored under an output's SHA-256; an absent one is 404.
-9. **The upload.** go-web-sdk's handler is mounted under Bunrei's API with an upload lifetime of
-   24 hours (a setting) and the chunk size as its append limit. Completing an upload stages the
-   file under `input/` by its SHA-256, records the completed upload (SHA-256, name, media type,
-   size), and answers with the upload ID; the handler then deletes the upload's rows and chunks.
-10. **CompleteUpload** queues a job from a completed upload, a profile and the three optional
-    extracts, as Submit does, and records the job on it; repeating it returns the same job. An
-    unknown or expired completed upload is 404.
-11. **Retention.** The sweeper reclaims expired uploads and their chunk rows, `upload/` objects
-    at twice the upload lifetime, completed uploads past the lifetime, and submissions past their
-    age.
-12. **Problems.** Every refusal by Bunrei's Commands and Queries is an RFC 9457 problem whose
-    type is `urn:standards-lab:bunrei:problem:<name>`, the names exported by the `client` module.
-13. **The `client` module.** It holds `Client`, built over a base URL and an `http.Client`, with
-    one method per Command and Query (Submit, CompleteUpload, CancelJob, GetJob, GetOutput,
-    ListProfiles), each taking a `context.Context` and returning a refusal as an error carrying
-    its problem. `Client.Upload` sends a file through go-web-sdk's upload client, resuming within
-    its attempts, and returns the upload ID for CompleteUpload. `Submit`, `CompleteUpload` and
-    `Queued` carry the three extracts. Its client tests, run against the served API, are the
-    protocol's executable proof.
-
-**Test seams**
-- The upload store through `uploadtest.Run`, in the integration tier on PostgreSQL and SeaweedFS.
-- The domain services over the memory broker and storage fakes in the unit tier.
-- The `client` module's `Client` against the running service through the integration harness,
-  covering every behavior above end to end, including an upload resumed after an interruption.
-
-**Slices**
-1. **Upgrade** capstone-bunrei: docinfer v0.6.0 in the root and `client`, docinfer/postgres
-   v0.1.4, go-core v0.14.0, and go-web-sdk v0.20.0 fetched direct, as docproc/postgres v0.1.8
-   was, since the module proxy doesn't list the tag yet; done when `mise run currency` exits 0
-   or reports only held items, and `mise run check` passes (1).
-2. **Schema and upload store**: Bunrei's migration set, the store passing `uploadtest`, its
-   reclaimer and the `upload/` expiry (2, 3, 11).
-3. **Submit**: staging, `queued` with three extracts, enqueue, the idempotency record and its
-   sweep, the 413, 409 and cap refusals, problem types (4, 5, 11, 12).
-4. **GetJob, CancelJob, GetOutput** routes (6–8).
-5. **Upload and CompleteUpload**: the mounted handler, the Complete function, the
-   completed-upload record and its sweep (9–11).
-6. **The `client` module's `Client`**: every method, `Client.Upload`, problem constants, the
-   integration tests through it (13).
-7. **Release readiness**: `client`'s requirements tidy for a standalone import (no replace
-   reaches a consumer), its package documentation lists the full API, and the README states how
-   Mikoshi imports `client/v0.1.0`.
-
-**Out of scope**
-- ListProfiles' route and refusing an unknown profile (`jobs`); `Client.ListProfiles` ships and
-  its route answers 404 until then.
-- Running jobs: workers, pipelines, fencing a running job's cancellation, dead letters (`jobs`).
-- Prompt override Queries and Commands (`prompts`).
-- The event and result-batch stream (`event-stream`).
-- Authentication, and the admin surface.
-- Changes to any other repository; the contract notes' edits go to this goal's pending edits.
-
-**Door**
-
-One-way for the `client/v0.1.0` tag only: once pushed, Mikoshi and the module proxy hold it. The
-routes, schema and settings stay two-way while no deployment holds data.
-
-**Release**
-- capstone-bunrei: `client/v0.1.0`.
-
-## Progress
-
-slices 7/7 committed · standards ✓ · spec ✓ · editor ✓
-- escalation, spec: narrow Behavior 12 to Bunrei's own Commands and Queries (the upload keeps
-  go-web-sdk's and the draft's problem types; unmatched routes keep `about:blank`)? yes
 
 ## Decisions
 
