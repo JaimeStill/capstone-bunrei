@@ -32,6 +32,8 @@ var readyChecks = []check{
 	{Name: "lifecycle", Ready: true},
 	{Name: "database", Ready: true},
 	{Name: "storage", Ready: true},
+	{Name: "job journal", Ready: true},
+	{Name: "work queue", Ready: true},
 	{Name: "schema", Ready: true},
 }
 

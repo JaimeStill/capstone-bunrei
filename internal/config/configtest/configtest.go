@@ -17,15 +17,20 @@ func Minimal() *config.Config {
 	cfg := &config.Config{}
 	cfg.Database.Name = "app"
 	cfg.Storage.Container = "bunrei"
+	cfg.NATS.Stream = "BUNREI_JOBS"
+	cfg.NATS.Prefix = "bunrei.job"
+	cfg.NATSQueue.Stream = "BUNREI_WORK"
+	cfg.NATSQueue.Subject = "bunrei.work"
+	cfg.NATSQueue.DeadLetter = "bunrei.work.dead"
 	return cfg
 }
 
 // Config returns a finalized Config whose composition performs no I/O: the
 // server on a loopback ephemeral port, debug logging so requests leave
-// records, and the database and the object store each aimed at a closed
-// loopback port, so each connection is refused immediately instead of
-// timing out, and the store tries once rather than retrying. The empty
-// prefix disables environment overrides.
+// records, and the database, the object store, and the NATS broker and
+// work queue each aimed at a closed loopback port, so each connection is
+// refused immediately instead of timing out, and the store tries once
+// rather than retrying. The empty prefix disables environment overrides.
 func Config(t *testing.T) *config.Config {
 	t.Helper()
 	cfg := Minimal()
@@ -40,6 +45,9 @@ func Config(t *testing.T) *config.Config {
 	cfg.Storage.Account = "admin"
 	cfg.Storage.Key = "secret"
 	cfg.Storage.Options = map[string]string{"max_retries": "0"}
+	nats := fmt.Sprintf("nats://127.0.0.1:%d", ClosedPort(t))
+	cfg.NATS.URL = nats
+	cfg.NATSQueue.URL = nats
 	if err := cfg.Finalize(""); err != nil {
 		t.Fatalf("finalize hermetic config: %v", err)
 	}

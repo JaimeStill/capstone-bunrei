@@ -9,6 +9,7 @@ import (
 	"github.com/standards-lab/go-core/logging"
 	"github.com/standards-lab/go-database"
 	"github.com/standards-lab/go-database/postgres"
+	"github.com/standards-lab/go-messaging/nats"
 	"github.com/standards-lab/go-storage"
 	"github.com/standards-lab/go-storage/s3"
 )
@@ -20,6 +21,8 @@ func defineInfrastructure(g *graph.Graph, n *Nodes) {
 	n.Storage = g.Define("storage", n.newStorage)
 	n.Content = g.Define("content", n.newContent)
 	n.Input = g.Define("input", n.newInput)
+	n.JobJournal = g.Define("job journal", n.newJobJournal)
+	n.WorkQueue = g.Define("work queue", n.newWorkQueue)
 }
 
 func (n *Nodes) newLifecycleConfig(s *graph.Scope) (lifecycle.Config, error) {
@@ -59,4 +62,12 @@ func (n *Nodes) newInput(s *graph.Scope) (*docstorage.Content, error) {
 		Prefix: *objects.InputPrefix,
 		Renew:  objects.RenewAge.Duration(),
 	})
+}
+
+func (n *Nodes) newJobJournal(s *graph.Scope) (*nats.Broker, error) {
+	return nats.New(s.Use(n.Config).NATS)
+}
+
+func (n *Nodes) newWorkQueue(s *graph.Scope) (*nats.Queue, error) {
+	return nats.NewQueue(s.Use(n.Config).NATSQueue)
 }

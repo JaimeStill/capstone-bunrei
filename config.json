@@ -36,6 +36,21 @@
       "try_timeout": "10s"
     }
   },
+  "nats": {
+    "url": "nats://127.0.0.1:4222",
+    "stream": "BUNREI_JOBS",
+    "prefix": "bunrei.job",
+    "owner": true,
+    "max_age": "720h"
+  },
+  "nats_queue": {
+    "url": "nats://127.0.0.1:4222",
+    "stream": "BUNREI_WORK",
+    "subject": "bunrei.work",
+    "dead_letter": "bunrei.work.dead",
+    "owner": true,
+    "max_age": "0s"
+  },
   "objects": {
     "content_prefix": "content/",
     "input_prefix": "input/",

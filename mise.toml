@@ -84,7 +84,7 @@ description = "Run the unit tier"
 run = "go test -race ./..."
 
 [tasks.integration]
-description = "Start the isolated compose stack on its own ports, run the integration tier against the built service pointed at the stack's database and S3 gateway, print the stack's logs on a failure, and tear the stack down with its volumes"
+description = "Start the isolated compose stack on its own ports, run the integration tier against the built service pointed at the stack's database, S3 gateway, and NATS server, print the stack's logs on a failure, and tear the stack down with its volumes"
 run = '''
 set -e
 export COMPOSE_PROJECT_NAME=capstone-bunrei-integration NATS_PORT=4227 POSTGRES_PORT=5443 SEAWEEDFS_S3_PORT=8338
@@ -92,6 +92,7 @@ trap 'rc=$?; [ $rc -eq 0 ] || docker compose logs; docker compose down -v; exit 
 docker compose up -d --wait --build
 BUNREI_DATABASE_HOST=127.0.0.1 BUNREI_DATABASE_PORT=$POSTGRES_PORT BUNREI_DATABASE_PASSWORD=app \
 BUNREI_STORAGE_ENDPOINT=http://127.0.0.1:$SEAWEEDFS_S3_PORT BUNREI_STORAGE_ACCOUNT=admin BUNREI_STORAGE_KEY=secret \
+BUNREI_NATS_URL=nats://127.0.0.1:$NATS_PORT BUNREI_NATS_QUEUE_URL=nats://127.0.0.1:$NATS_PORT \
 go test -race -count=1 -tags integration ./integration/
 '''
 

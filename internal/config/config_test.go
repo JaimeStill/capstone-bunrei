@@ -425,3 +425,76 @@ func TestObjects_FinalizeRejectsInvalidLayout(t *testing.T) {
 		})
 	}
 }
+
+func TestNATS_FinalizeEnvOverrides(t *testing.T) {
+	t.Setenv("BUNREI_NATS_URL", "nats://nats.internal:4222")
+	t.Setenv("BUNREI_NATS_STREAM", "JOBS")
+	t.Setenv("BUNREI_NATS_PREFIX", "jobs")
+	t.Setenv("BUNREI_NATS_OWNER", "true")
+	t.Setenv("BUNREI_NATS_MAX_AGE", "168h")
+	t.Setenv("BUNREI_NATS_QUEUE_URL", "nats://queue.internal:4222")
+	t.Setenv("BUNREI_NATS_QUEUE_STREAM", "WORK")
+	t.Setenv("BUNREI_NATS_QUEUE_SUBJECT", "work")
+	t.Setenv("BUNREI_NATS_QUEUE_DEAD_LETTER", "work.dead")
+	t.Setenv("BUNREI_NATS_QUEUE_OWNER", "true")
+	t.Setenv("BUNREI_NATS_QUEUE_MAX_AGE", "24h")
+
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize("bunrei"); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	n := cfg.NATS
+	if n.URL != "nats://nats.internal:4222" || n.Stream != "JOBS" || n.Prefix != "jobs" ||
+		n.Owner == nil || !*n.Owner || n.MaxAge.Duration() != 168*time.Hour {
+		t.Errorf("nats = %+v, want every field from BUNREI_NATS_*", n)
+	}
+	q := cfg.NATSQueue
+	if q.URL != "nats://queue.internal:4222" || q.Stream != "WORK" || q.Subject != "work" || q.DeadLetter != "work.dead" ||
+		q.Owner == nil || !*q.Owner || q.MaxAge.Duration() != 24*time.Hour {
+		t.Errorf("nats_queue = %+v, want every field from BUNREI_NATS_QUEUE_*", q)
+	}
+}
+
+func TestNATS_FinalizeNamesInvalidBlocks(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		spoil func(*config.Config)
+		block string
+	}{
+		{"no stream", func(c *config.Config) { c.NATS.Stream = "" }, "nats: config:"},
+		{"a non-owner's max_age", func(c *config.Config) { c.NATS.MaxAge = libconfig.Duration(time.Hour) }, "nats: config:"},
+		{"no queue subject", func(c *config.Config) { c.NATSQueue.Subject = "" }, "nats: queue config:"},
+		{"a dead letter over the subject", func(c *config.Config) { c.NATSQueue.DeadLetter = "bunrei" }, "nats: queue config:"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := configtest.Minimal()
+			tc.spoil(cfg)
+			err := cfg.Finalize("")
+			if err == nil {
+				t.Fatal("Finalize accepted the block")
+			}
+			if !strings.HasPrefix(err.Error(), tc.block) {
+				t.Errorf("error = %v, want it to name the block, %s", err, tc.block)
+			}
+		})
+	}
+}
+
+func TestNATS_BaseStreams(t *testing.T) {
+	cfg, err := libconfig.Load[config.Config](libconfig.Options{Dir: "../..", SecretsName: "secrets.example.json"})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	n := cfg.NATS
+	if n.URL != "nats://127.0.0.1:4222" || n.Stream != "BUNREI_JOBS" || n.Prefix != "bunrei.job" ||
+		n.Owner == nil || !*n.Owner || n.MaxAge.Duration() != 30*24*time.Hour {
+		t.Errorf("nats = %+v, want the owned BUNREI_JOBS stream under bunrei.job, kept 30 days, on the local server", n)
+	}
+	q := cfg.NATSQueue
+	if q.URL != "nats://127.0.0.1:4222" || q.Stream != "BUNREI_WORK" || q.Subject != "bunrei.work" ||
+		q.DeadLetter != "bunrei.work.dead" || q.Owner == nil || !*q.Owner || q.MaxAge != 0 {
+		t.Errorf("nats_queue = %+v, want the owned BUNREI_WORK queue on bunrei.work, dead letters on bunrei.work.dead, kept until taken, on the local server", q)
+	}
+}

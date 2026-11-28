@@ -164,7 +164,7 @@ func TestGraph_ReadinessChecks(t *testing.T) {
 	for _, c := range lifecycle.New(sys, cfg.Config).Checks() {
 		got = append(got, c.Name)
 	}
-	want := []string{"database", "storage", "schema"}
+	want := []string{"database", "storage", "job journal", "work queue", "schema"}
 	if !slices.Equal(got, want) {
 		t.Errorf("checks = %v, want %v", got, want)
 	}
@@ -188,6 +188,26 @@ func TestGraph_SchemaBetweenTheDatabaseAndTheServer(t *testing.T) {
 	}
 	below(n.Database, n.Schema)
 	below(n.Schema, n.Server)
+	if t.Failed() {
+		t.Logf("layers:\n%s", sys)
+	}
+}
+
+func TestGraph_StreamsBelowTheJobRoot(t *testing.T) {
+	a := app.New(configtest.Config(t), io.Discard)
+	sys := buildAsRun(t, a)
+	n := a.Nodes()
+
+	for _, r := range []graph.Ref{n.JobJournal, n.WorkQueue, n.Jobs, n.Server} {
+		if !sys.Has(r) {
+			t.Fatalf("%s is not in the System\nlayers:\n%s", r.Name(), sys)
+		}
+	}
+	for _, stream := range []graph.Ref{n.JobJournal, n.WorkQueue} {
+		if l, u := sys.LayerOf(stream), sys.LayerOf(n.Jobs); l >= u {
+			t.Errorf("%s in layer %d, %s in layer %d; want %s below", stream.Name(), l, n.Jobs.Name(), u, stream.Name())
+		}
+	}
 	if t.Failed() {
 		t.Logf("layers:\n%s", sys)
 	}

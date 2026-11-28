@@ -12,5 +12,11 @@
   "storage": {
     "endpoint": "http://127.0.0.1:8338",
     "account": "admin"
+  },
+  "nats": {
+    "url": "nats://127.0.0.1:4227"
+  },
+  "nats_queue": {
+    "url": "nats://127.0.0.1:4227"
   }
 }

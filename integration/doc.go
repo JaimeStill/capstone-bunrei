@@ -9,11 +9,14 @@
 //   - [Options] holds the BUNREI_* overrides one service process adds.
 //     The harness points every process at the compose database through
 //     BUNREI_DATABASE_HOST, BUNREI_DATABASE_PORT, and
-//     BUNREI_DATABASE_PASSWORD, and at the compose S3 gateway through
+//     BUNREI_DATABASE_PASSWORD, at the compose S3 gateway through
 //     BUNREI_STORAGE_ENDPOINT, BUNREI_STORAGE_ACCOUNT, and
-//     BUNREI_STORAGE_KEY, taking each from its own environment when set, as
-//     mise run integration sets them, and otherwise from the compose
-//     stack's defaults.
+//     BUNREI_STORAGE_KEY, and at the compose NATS server through
+//     BUNREI_NATS_URL and BUNREI_NATS_QUEUE_URL, taking each from its own
+//     environment when set, as mise run integration sets them, and
+//     otherwise from the compose stack's defaults.
+//   - [NATSURL] is that NATS server, so a test can inspect the streams the
+//     service provisions.
 //   - [Database] opens the harness's own pool on that database, to read
 //     beneath the API.
 //   - [Compose] loads the configuration as the binary does, under the

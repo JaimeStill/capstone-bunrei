@@ -26,6 +26,7 @@ const (
 	defaultStorageEndpoint  = "http://127.0.0.1:8338"
 	defaultStorageAccount   = "admin"
 	defaultStorageKey       = "secret"
+	defaultNATSURL          = "nats://127.0.0.1:4227"
 )
 
 func getenv(name, def string) string {
@@ -43,6 +44,13 @@ func databasePassword() string {
 	return getenv("BUNREI_DATABASE_PASSWORD", defaultDatabasePassword)
 }
 
+// NATSURL is the compose NATS server the harness points the service's job
+// journal and work queue at, so a test can inspect the streams the service
+// provisions there.
+func NATSURL() string {
+	return getenv("BUNREI_NATS_URL", defaultNATSURL)
+}
+
 func stack() []string {
 	dbHost, dbPort := databaseHostPort()
 	return []string{
@@ -52,6 +60,8 @@ func stack() []string {
 		"BUNREI_STORAGE_ENDPOINT=" + getenv("BUNREI_STORAGE_ENDPOINT", defaultStorageEndpoint),
 		"BUNREI_STORAGE_ACCOUNT=" + getenv("BUNREI_STORAGE_ACCOUNT", defaultStorageAccount),
 		"BUNREI_STORAGE_KEY=" + getenv("BUNREI_STORAGE_KEY", defaultStorageKey),
+		"BUNREI_NATS_URL=" + NATSURL(),
+		"BUNREI_NATS_QUEUE_URL=" + getenv("BUNREI_NATS_QUEUE_URL", defaultNATSURL),
 	}
 }
 
@@ -165,7 +175,8 @@ func Database(t testing.TB) *sql.DB {
 // Compose loads the service's configuration as the binary does, from the
 // module root's base file with the harness's variables pointing it at the
 // compose stack, and returns the App described over it, unbuilt, so a test
-// can Build and drive a node no route reaches, such as the content store.
+// can Build and drive a node no route reaches, such as the content store or
+// the job root.
 // It sets the variables and the working directory for the test's duration,
 // so a test that calls it cannot run in parallel.
 func Compose(t *testing.T) *app.App {

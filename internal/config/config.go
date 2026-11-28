@@ -7,6 +7,7 @@ import (
 	"github.com/standards-lab/go-core/lifecycle"
 	"github.com/standards-lab/go-core/logging"
 	"github.com/standards-lab/go-database"
+	"github.com/standards-lab/go-messaging/nats"
 	"github.com/standards-lab/go-storage"
 	"github.com/standards-lab/go-web-sdk"
 )
@@ -14,20 +15,24 @@ import (
 const envPrefix = "bunrei"
 
 // Config is the service's root configuration: the library capability blocks
-// (the log, the server, the database connection, and the storage connection)
-// plus the service-owned read policy and object layout. It embeds the lifecycle Coordinator's
-// configuration by value and untagged, so its shutdown_timeout is a
-// top-level key and ShutdownTimeout a promoted field; Config.Config is that
-// lifecycle block, the one the composition root hands the Coordinator.
+// (the log, the server, the database connection, the storage connection, the
+// BUNREI_JOBS stream's NATS broker, and the BUNREI_WORK stream's NATS work
+// queue) plus the service-owned read policy and object layout. It embeds the
+// lifecycle Coordinator's configuration by value and untagged, so its
+// shutdown_timeout is a top-level key and ShutdownTimeout a promoted field;
+// Config.Config is that lifecycle block, the one the composition root hands
+// the Coordinator.
 type Config struct {
 	lifecycle.Config
 
-	Log      logging.Config  `json:"log"`
-	Server   web.Config      `json:"server"`
-	Database database.Config `json:"database"`
-	Storage  storage.Config  `json:"storage"`
-	Objects  ObjectsConfig   `json:"objects"`
-	Reads    ReadsConfig     `json:"reads"`
+	Log       logging.Config   `json:"log"`
+	Server    web.Config       `json:"server"`
+	Database  database.Config  `json:"database"`
+	Storage   storage.Config   `json:"storage"`
+	NATS      nats.Config      `json:"nats"`
+	NATSQueue nats.QueueConfig `json:"nats_queue"`
+	Objects   ObjectsConfig    `json:"objects"`
+	Reads     ReadsConfig      `json:"reads"`
 }
 
 // Merge overlays src's set fields onto the receiver, delegating each block
@@ -41,6 +46,8 @@ func (c *Config) Merge(src *Config) {
 	c.Server.Merge(&src.Server)
 	c.Database.Merge(&src.Database)
 	c.Storage.Merge(&src.Storage)
+	c.NATS.Merge(&src.NATS)
+	c.NATSQueue.Merge(&src.NATSQueue)
 	c.Objects.Merge(&src.Objects)
 	c.Reads.Merge(&src.Reads)
 }
@@ -50,7 +57,10 @@ func (c *Config) Merge(src *Config) {
 // The lifecycle block's error returns as it is, unlabelled, since it names
 // its own key or variable: it applies the 10s default shutdown timeout,
 // reads <PREFIX>_SHUTDOWN_TIMEOUT, and rejects a non-positive timeout, on
-// which the lifecycle coordinator panics. An empty prefix composes empty
+// which the lifecycle coordinator panics. The nats and nats_queue blocks'
+// errors return unlabelled too, since go-messaging's provider labels its
+// own ("nats: config:" and "nats: queue config:"); their variables are
+// <PREFIX>_NATS_* and <PREFIX>_NATS_QUEUE_*. An empty prefix composes empty
 // variable names, which read as no override, so it disables every
 // environment override; tests use this hermetic form.
 func (c *Config) Finalize(envPrefix string) error {
@@ -68,6 +78,12 @@ func (c *Config) Finalize(envPrefix string) error {
 	}
 	if err := c.Storage.Finalize(envPrefix); err != nil {
 		return fmt.Errorf("storage: %w", err)
+	}
+	if err := c.NATS.Finalize(envPrefix); err != nil {
+		return err
+	}
+	if err := c.NATSQueue.Finalize(envPrefix); err != nil {
+		return err
 	}
 	if err := c.Objects.Finalize(envPrefix); err != nil {
 		return fmt.Errorf("objects: %w", err)
