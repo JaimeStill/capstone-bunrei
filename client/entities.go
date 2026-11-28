@@ -5,6 +5,11 @@ import (
 	"github.com/standards-lab/docinfer/job"
 )
 
+// Version is the version of the client module's wire, grown by addition only: the shapes of
+// [Job], [Manifest], [Attempt], and the job's event data. Bunrei's events carry it in their
+// dataschema, urn:standards-lab:bunrei:client: followed by Version.
+const Version = "1"
+
 // State is where a job stands.
 type State string
 

@@ -18,5 +18,6 @@
 //   - [AttemptFailed]: attempt.failed's, the attempt and its error;
 //   - [Failed]: failed's, the attempt and its error.
 //
-// Each type's JSON is its wire shape, with snake_case member names.
+// Each type's JSON is its wire shape, with snake_case member names, at the wire version
+// [Version].
 package client
