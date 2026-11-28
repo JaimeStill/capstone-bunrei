@@ -1,8 +1,8 @@
 # goal · capstone.data-intelligence.bunrei
 
-- **State:** idle
-- **Task:** none
-- **Branch:** none
+- **State:** building
+- **Task:** state
+- **Branch:** state
 
 ## Tasks
 
@@ -20,6 +20,108 @@
 12. [ ] event-stream
 13. [ ] tool-packaging
 14. [ ] foundation-notes
+
+## Task brief · state
+
+**Problem**
+
+Bunrei is still the bare template: no database, no blob storage, no JetStream, no job. `api` and
+`jobs` both need the job as a stream-backed root, folded from its events and appended to under the
+expected sequence, and the stores docproc and docinfer write through, retained by age. This task
+builds both, with the `client` types the job's events carry, so later tasks add Commands and runs
+rather than infrastructure.
+
+**Behaviors**
+
+1. **Current dependencies.** Bunrei builds on go-core v0.13.0 and go-web-sdk v0.19.0.
+2. **The `client` module.** The nested, unreleased `client` module holds `Job`, `State`
+   (`queued`, `running`, `completed`, `failed`, `cancelled`), `Manifest` and `Attempt`, as the
+   protocol note defines them, and the data of `queued`, `started`, `attempt.failed` and `failed`,
+   as the events note describes them. Each type round-trips through JSON. Bunrei's root module
+   builds against the module in-tree, and the check covers both modules.
+3. **Loading a job.** Bunrei loads a job by reading `bunrei.job.<job>` in order, returning the
+   folded `Job` and the subject's last stream sequence. A job with no events is not found; an
+   event whose type is not one of the 13 job types fails the load, naming the type.
+4. **The fold.** Every event advances the job's gap-free sequence by one, which becomes
+   `Job.Sequence`.
+   - `queued` sets profile, name, size and SHA-256, state `queued`.
+   - `started` sets state `running` and the attempt, and adds an attempt entry.
+   - `attempt.failed` records the error and returns the state to `queued`.
+   - `cancel_requested` marks cancellation requested.
+   - `completed`, `failed`, `cancelled` set their terminal state; `failed` sets the error.
+   - `checkpoint` keeps the last `After`.
+   - `batch` folds from its headers alone: counts the batch, adds `batchchunks`, extends the digest
+     by the events note's manifest rule, across every attempt.
+   - `part`, `output`, `warning`, `inference` only advance the sequence.
+5. **Appending to a job.** The caller decides the next event from the folded job. Bunrei stamps
+   `id` (UUIDv7 when absent), `source` `bunrei`, `subject` and `correlationid` as the job's ID,
+   `jobsequence` as the folded count plus one, and `layer` from the events table. It appends with
+   the folded last sequence as expected. When another writer appended first, Bunrei reads on from
+   that sequence, folds again, and asks the caller to decide again. A retry of an append whose
+   outcome is unknown, while the stored event is still the subject's last, returns that event's
+   sequence. A decision that refuses appends nothing. Bunrei refuses any append to an ended job.
+6. **PostgreSQL.** At startup, before any domain node, Bunrei applies docproc's index migration
+   set, then docinfer's cache set, then go-messaging's outbox and inbox set. Database and schema
+   each join readiness.
+7. **Blob storage.** The S3 store joins readiness. Content goes through docproc's content store
+   under `content/` with a renew age, and a put and an open by SHA-256 round-trip. A job's staged
+   input is kept under `input/` by its declared SHA-256, and Bunrei can reopen it.
+8. **JetStream.** Bunrei owns two streams on file storage, each joining readiness. BUNREI_JOBS:
+   prefix `bunrei.job`, `max_age` 30 days; the job root reads and appends on it over NATS as it
+   does in memory. BUNREI_WORK: work-queue stream, subject `bunrei.work`, dead letters
+   `bunrei.work.dead`, `max_age` 0.
+9. **Retention.** A sweep reactor runs docproc's index retention at 30 days; go-messaging's
+   outbox and inbox retention at 7 days each; and a blob reclaimer that pages through a prefix and
+   deletes objects whose `ModifiedAt` is older than the prefix's age: `content/` at 67 days (renew
+   age 7 days), `input/` at 30 days. Each pass stays within its budget and reports whether more
+   remains.
+10. **Configuration.** Every connection, name, age and budget is a setting, with the starting
+    values in behaviors 7–9, the stack's addresses in the local overlay, and environment overrides.
+
+**Test seams**
+- The job root's load and append over `messaging.Journal`: memory broker in the unit tier,
+  BUNREI_JOBS in the integration tier.
+- The blob reclaimer's `Pass` over a go-storage client: storagetest's `Fake` with a set clock in
+  the unit tier, SeaweedFS in the integration tier.
+- The composed service through the integration harness, on an isolated compose stack (NATS,
+  PostgreSQL, SeaweedFS) on its own ports, started and torn down by `mise run integration`, which
+  CI's integration job runs.
+
+**Slices**
+1. **Upgrade** to go-core v0.13.0 and go-web-sdk v0.19.0; done when `mise run currency` exits 0 or
+   reports only held items, and `mise run check` passes.
+2. **The `client` module**: job and event data types, JSON round-trips, check covers it (2).
+3. **The job root** on the memory broker: load, fold, stamp, guarded append and its retry after a
+   conflict, refusal after the job ends (3–5).
+4. **The isolated integration stack** and `mise run integration`, CI running it; the existing
+   lifecycle suite passes on it.
+5. **PostgreSQL and the schema**: database node, admin service applying the three sets, readiness;
+   the integration tier finds the tables (6).
+6. **Blob storage**: S3 store, bucket ensured, content store and staged input, integration
+   round-trips (7).
+7. **JetStream**: BUNREI_JOBS broker and BUNREI_WORK queue as owned streams; the job root's
+   integration cases pass over NATS (8).
+8. **Retention**: sweep reactor with docproc index, outbox and inbox retention and the blob
+   reclaimer; unit cases on the fake, an integration pass deleting an aged object (9).
+
+**Out of scope**
+- Uploads: `upload.Store`, the `upload/` prefix's code, BUNREI_UPLOADS (`api`).
+- Submit, CancelJob, Submit's idempotency record, GetJob's route, `client`'s `Client`, and
+  releasing `client/v0.1.0` (`api`).
+- Running jobs: workers, docproc/docinfer wiring, fencing, the dead-letter worker, `completed`'s
+  `Done`, the messaging runtime (`jobs`).
+- go-messaging changes: in-order delivery within a group; following one subject continuously.
+- Retention for docinfer's cache, which has no retention API.
+- Any release.
+
+**Door**
+
+Two-way. Nothing is tagged and `client` stays unreleased until `api`. Names, ages and schema are
+configuration or migrations a later task can change while no deployment holds data.
+
+## Progress
+
+slices 0/8 committed · standards — · spec — · editor —
 
 ## Decisions
 
@@ -104,6 +206,29 @@
 - messaging-work-queue: released as go-messaging `v0.5.0` and `nats/v0.5.0`; `state` builds on
   them. The postgres sqlate bumps stay under [Unreleased].
 
+- state: `state` builds Bunrei's stores and the job root (fold and guarded append); Submit,
+  CancelJob and routes stay `api`'s, running jobs `jobs`'.
+- state: the job's types live in the nested `client` module, created unreleased at `state` via
+  `replace ./client`; `api` adds `Client` and the Commands and tags `client/v0.1.0`.
+- state: the fold applies all 13 job types; batches fold from headers into `Batches`, `Chunks`,
+  `Digest`; `checkpoint` keeps the last `After`; `jobs` writes `completed`'s `Manifest` from the
+  fold and adds `Done`.
+- state: the job root stamps `id`, `source`, `subject`, `correlationid`, `jobsequence`, `layer`;
+  the caller sets `causationid`; appends to an ended job are refused.
+- state: blob storage is retained by a Bunrei reclaimer (list prefix, delete by `ModifiedAt`) on
+  go-database's `sweep`, beside docproc index and go-messaging outbox/inbox retention. Rejected a
+  bucket lifecycle rule (docproc/storage's recommendation): go-storage can't set one, the stack
+  creates no bucket, SeaweedFS support unconfirmed.
+- state: starting retentions: BUNREI_JOBS 30d (GetJob loses the job after); docproc index 30d;
+  content renew 7d; `content/` 67d; `input/` 30d; outbox and inbox 7d; BUNREI_WORK 0.
+- state: Bunrei's `upload.Store` is `api`'s (PostgreSQL row with chunks at
+  `upload/<upload>/<offset>`, or a BUNREI_UPLOADS stream, settled there).
+- state: the integration tier runs on Bunrei's own compose stack via `mise run integration`, in CI.
+- state: go-messaging unchanged; in-order delivery within a group goes to `event-stream`;
+  following one job's subject for fencing goes to `jobs` (or polling `Read`).
+- state: names: BUNREI_JOBS (prefix `bunrei.job`), BUNREI_WORK (`bunrei.work`, dead letters
+  `bunrei.work.dead`), file storage; blob prefixes `content/`, `input/`, `upload/`.
+
 ## Pending edits
 
 - coordinator · `docs/data-intelligence.md`, "Tool packaging": the image holds poppler-utils 22.02
@@ -147,9 +272,6 @@
   `docproc-v0.10.0/`, with its binaries in `bin-v0.10.0/`, and docinfer's text-layer run in
   `docinfer/text-layer/`; link docinfer's
   `docs/acceptance.md#docs-corpus-v020-with-the-text-layer-skip`.
-- coordinator · `roadmap/capstone.data-intelligence.bunrei.toml`: no task builds the go-messaging
-  asks `messaging-append` left out (a durable consumer filtered by subject, in-order delivery
-  within a delivery group); the `state` or `event-stream` summary sizes them.
 - coordinator · roadmap: a backlog entry for appending several events atomically (JetStream
   atomic batch publish, once nats.go has a client API).
 - coordinator · `context/messaging.md`: "Open", "A stream-backed root": drop "(planned)";
@@ -179,3 +301,17 @@
   with its own extension of a running delivery.
 - coordinator · roadmap: a backlog entry for a Postgres `SKIP LOCKED` work-queue provider that
   meets go-messaging's work-queue contract and conformance suite.
+- coordinator · roadmap: `state` summary drops "uploads"; `api` takes `upload.Store` and Submit's
+  idempotency record; `event-stream` takes in-order delivery within a group; `jobs` takes
+  following one job's subject for fencing and emptying docproc's working directory at startup.
+  Retires the existing edit about the asks `messaging-append` left out.
+- coordinator · roadmap: backlog entry for docinfer cache retention.
+- capstone-data-intelligence · `context/protocol.md` "Ownership" and "The client module";
+  `context/events.md` "Ownership": `state` creates `client` with the job types; `api` completes and
+  releases it.
+- docproc · `context/bunrei.md` "State and subjects": settled names and retentions; Bunrei's
+  reclaimer replaces "host sweeps content by age"; drop "names and retentions are `state`'s".
+- coordinator · `docs/data-intelligence.md`: "Open items" `state` names/retentions resolved;
+  "Bunrei", "State": reclaimer, not lifecycle rule.
+- coordinator · `context/data-intelligence.md` go-messaging asks: append and work queue built
+  (v0.4.0, v0.5.0); remaining asks move to `event-stream` and `jobs`.
