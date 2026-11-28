@@ -58,12 +58,14 @@ the gateway can't count that model's tokens.
    - Frame descriptions sit at their `MetaTime`.
    - The transcript is cut at the join's seams into each window's words, placed at that window's
      `MetaStart`–`MetaEnd`.
-   - Lines are ordered by time as `[m:ss] heard: …` and `[m:ss] seen: …`.
+   - Lines are ordered by time as `[m:ss–m:ss] heard: …`, the window's span, and
+     `[m:ss] seen: …`.
    - A long timeline is windowed and combined as in behavior 4.
    - An audio-stage part gets no timeline. A video part with neither descriptions nor a
      transcript gets no extraction.
 8. A timeline extraction is yielded after its video part's own event and after its frames' and
-   transcript's inferences. Settlement and `Pending` are unchanged.
+   transcript's inferences. The video part's own event settles once its timeline is yielded;
+   `Pending` is unchanged.
 9. `Inference` gains `scope`, `document` or `timeline`, omitted for per-source inferences:
    - Only each scope's final inference is yielded. Window results are cached, not yielded.
    - The document inference's Part is the depth-0 part. The timeline inference's Part is the
@@ -122,7 +124,9 @@ fields become wire and API contracts. The code before the tags is two-way.
 
 ## Progress
 
-slices 0/7 committed · standards — · spec — · editor —
+slices 7/7 committed · standards ✓ · spec ✓ (2 gaps settled by escalation) · editor ✓
+- escalation, spec round 1: video part settlement hold on its timeline; heard-line span format: keep the hold, keep the span (both recs)
+- live tier: checkHeld fixed for held extraction calls and inference order (14fc8d1); passes on the gateway
 
 ## Decisions
 
@@ -174,8 +178,6 @@ slices 0/7 committed · standards — · spec — · editor —
   prefix by age) on go-database's `sweep`; startup refuses a content or input age at or below the
   renew age. Rejected a bucket lifecycle rule (docproc/storage's recommendation): go-storage can't
   set one, the stack creates no bucket, SeaweedFS support unconfirmed.
-- state: the integration stack listens on NATS 4227, PostgreSQL 5443, SeaweedFS S3 8338; the
-  local overlay points at the capstone dev stack (4226, 5439, 8335).
 - state: docproc/postgres v0.1.8 is fetched direct: the module proxy and sumdb 404 the tag, which
   exists on the public remote.
 - state: go-messaging unchanged; in-order delivery within a group goes to `event-stream`;
@@ -189,20 +191,14 @@ slices 0/7 committed · standards — · spec — · editor —
   cached by its own input's SHA-256. A rune bound, since the gateway can't tokenize for `agent`.
   No default; Bunrei's profile sets it at `jobs`. Rejected Athena's 10,000-character truncation,
   marking long texts incomplete, and langchaingo's map-reduce chain.
-- document-extraction: a document's text is its per-source texts in pull order, without metadata.
-- document-extraction: timelines are for video-stage parts only; transcript text sits at window
-  spans cut at the seams, interleaved with frames at `MetaTime`.
 - document-extraction: `job` yields no checkpoint while `Document` is set; Bunrei's `jobs` resumes
   such a job from the start. Rejected carrying text SHA-256s in `Checkpoint`.
-- document-extraction: `Inference.scope` (`document`, `timeline`) marks the new inferences; only
-  each scope's final inference is yielded; capability stays `extraction`.
-- document-extraction: cmd/docinfer runs no extraction; extraction there is a backlog entry.
 
 ## Pending edits
 
 - coordinator · `docs/data-intelligence.md`, "Tool packaging": the image holds poppler-utils 22.02
   or later, whose pdfinfo docproc v0.10.0's document stage requires beside pdftotext and pdfdetach,
-  and ImageMagick 7.1 or later, whose magick its vision stage now requires, as the picture and
+  and ImageMagick 7.1 or later, whose magick its vision stage requires, as the picture and
   office stages do. "Open items": `metadata` resolved by docproc v0.10.0.
 - capstone-data-intelligence · `context/chunks.md`, "Fields" and "Source occurrence": a source's
   text SHA-256 is its `sha256` when present, else its `output`'s; a metadata source may carry the
@@ -235,8 +231,9 @@ slices 0/7 committed · standards — · spec — · editor —
 - coordinator · `context/messaging.md`: "Open", "A stream-backed root": drop "(planned)";
   go-messaging builds the append and subject read as `messaging.Journal` (v0.4.0, nats/v0.4.0)
   and the work-queue package as `messaging.Queue` (v0.5.0, nats/v0.5.0); Bunrei's job root
-  appends and reads through `messaging.Journal`, and its workers on the queue are `jobs`'. Retire "A dead-letter stream, deferred until a consumer needs replay": the queue
-  dead-letters onto a subject on its own stream, and replay stays unbuilt. Add to "Open": a
+  appends and reads through `messaging.Journal`, and its workers on the queue are `jobs`'. Retire
+  "A dead-letter stream, deferred until a consumer needs replay": the queue dead-letters onto a
+  subject on its own stream, and replay stays unbuilt. Add to "Open": a
   replicated stream deduplicates an append before checking its expected sequence, so a stale
   repeat within the window returns the original's sequence, not `ErrConflict`. "Decisions": a
   work-queue worker runs through `messaging.Runtime.Work`, since go-core's reactor detaches a
@@ -278,7 +275,8 @@ slices 0/7 committed · standards — · spec — · editor —
   builds both scopes as `Options.Document` and `Options.Timeline`; Submit, CompleteUpload, and
   `queued` carry all three extracts under the 256 KiB cap; `inference` carries `scope`.
 - docproc · `context/bunrei.md`: "the extraction spec" becomes the three optional extracts.
-- coordinator · `docs/data-intelligence.md`: `Extraction.WindowRunes`, set by Bunrei at `jobs`.
+- coordinator · `docs/data-intelligence.md`: add docinfer's `Extraction.WindowRunes`, which Bunrei
+  sets at `jobs`.
 - coordinator · roadmap backlog entries: picture metadata beyond EXIF (IPTC, maker notes, reverse
   geocoding); rendering Skype conversation records (`MediaMailConversation`: topic, start, end,
   missed) as metadata text; a note that go-ai's built-in chat-mode transcription instruction, which
