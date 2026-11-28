@@ -14,17 +14,18 @@
 //     checks the sweep's object ages against the objects block's renew age.
 //   - [ObjectsConfig] is the service-owned object layout, with its own Merge
 //     and Finalize: the content, input, and upload prefixes in the storage
-//     container and the content and input stores' shared renew age. [ObjectsEnv] records the
-//     environment-variable names its Finalize read.
+//     container and the content and input stores' shared renew age.
+//     [ObjectsEnv] records the environment-variable names its Finalize read.
 //   - [ReadsConfig] is the service-owned read policy, with its own Merge and
 //     Finalize; its Limits method hands the policy to a handler as
 //     web.Limits. [ReadsEnv] records the environment-variable names its
 //     Finalize read.
 //   - [UploadsConfig] is the service-owned upload policy, with its own
-//     Merge and Finalize: the lifetime of a resumable upload, and through
+//     Merge and Finalize: the lifetime of a resumable upload and the chunk
+//     size, the most content one creation or append carries, and through
 //     its ObjectAge method the age the sweeper reclaims the upload prefix's
 //     objects at, twice the lifetime. [UploadsEnv] records the
-//     environment-variable name its Finalize read.
+//     environment-variable names its Finalize read.
 //   - [SubmissionsConfig] is the service-owned submission policy, with its
 //     own Merge and Finalize: the small-document limit, the most bytes a
 //     submitted document decodes to, and the retention of a Submit's

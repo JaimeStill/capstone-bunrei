@@ -65,26 +65,27 @@
 // from the config node: the logger, written to the writer node, and the
 // database, go-database's PostgreSQL pool over the database block, and the
 // sql, the sqlate session over that pool with the PostgreSQL dialect, which
-// the schema and the sweeper share; the storage, go-storage's Store over
-// its s3 provider and the storage block, whose Start ensures the bucket,
-// which the stack never creates, and whose Ready joins the readiness probe;
-// and, over the storage, the content and the input, each a docproc/storage
-// Content under its prefix from the objects block with the block's renew
-// age: docproc's content store, and the store of each job's staged input by
-// its declared SHA-256. The content and the input own nothing and never
-// run, so neither is a lifecycle participant; the submissions node Uses the
-// input, and the outputs node the content, so both are built, and a wiring
-// mistake in either fails at startup. The job journal is go-messaging's NATS broker
-// over the nats block, the owner of the BUNREI_JOBS stream, which captures
-// the block's prefix, bunrei.job.> by default, and holds each job's events
-// on its subject, the prefix, a dot, and the job's ID; the work queue is go-messaging's NATS work queue over
-// the nats_queue block, the owner of the BUNREI_WORK work-queue stream,
-// which holds the jobs on bunrei.work and their dead letters on
+// the schema, the domain stores, and the sweeper share; the storage,
+// go-storage's Store over its s3 provider and the storage block, whose
+// Start ensures the bucket, which the stack never creates, and whose Ready
+// joins the readiness probe; and, over the storage, the content and the
+// input, each a docproc/storage Content under its prefix from the objects
+// block with the block's renew age: docproc's content store, and the store
+// of each job's staged input by its declared SHA-256. The content and the
+// input own nothing and never run, so neither is a lifecycle participant;
+// the submissions node Uses the input, and the outputs node the content, so
+// both are built, and a wiring mistake in either fails at startup. The job
+// journal is go-messaging's NATS broker over the nats block, the owner of
+// the BUNREI_JOBS stream, which captures the block's prefix, bunrei.job.>
+// by default, and holds each job's events on its subject, the prefix, a
+// dot, and the job's ID; the work queue is go-messaging's NATS work queue
+// over the nats_queue block, the owner of the BUNREI_WORK work-queue
+// stream, which holds the jobs on bunrei.work and their dead letters on
 // bunrei.work.dead. Each provisions its stream on file storage at Start,
 // with the block's max age, and joins the readiness probe. The submissions
-// node enqueues on the work queue; no worker runs on it yet.
-// An auth client joins as the service grows, its own node, with any order
-// it needs declared on its Define line. A service whose value implements
+// node enqueues on the work queue; no worker runs on it yet. An auth client
+// joins as the service grows, its own node, with any order it needs
+// declared on its Define line. A service whose value implements
 // lifecycle.Subsystem takes part in startup and shutdown through its own
 // methods, and its constructor opens nothing: connectivity belongs to its
 // Start, so a failed Build leaks no connections.
@@ -98,15 +99,14 @@
 // group, with its service and the logger for its error writer read with
 // Use. The schema is go-database's admin.Service over the database: its
 // Start applies, bottom-first, docproc's index set, docinfer's cache set,
-// go-messaging's outbox and inbox set, and Bunrei's own set from the
-// schema package, and its Ready joins the readiness probe beside the
-// database's. It is one of [App.Roots] until a
-// domain node Uses it, and the server orders itself after it, so the schema
-// is current before the first request. It mounts no routes yet, and the
-// /admin group ships empty. In production the admin mount belongs on its
-// own listener, authenticated and unreachable from the public API's network
-// path, an isolation the application settles when the first admin service
-// arrives.
+// go-messaging's outbox and inbox set, and Bunrei's own set from the schema
+// package, and its Ready joins the readiness probe beside the database's.
+// It is one of [App.Roots] until a domain node Uses it, and the server
+// orders itself after it, so the schema is current before the first
+// request. It mounts no routes yet, and the /admin group ships empty. In
+// production the admin mount belongs on its own listener, authenticated and
+// unreachable from the public API's network path, an isolation the
+// application settles when the first admin service arrives.
 //
 // The domain layer has one node per domain layer. Domain services are
 // defined in the module's base-layer domain packages, one package per layer
@@ -117,32 +117,31 @@
 // handed the nats block's prefix as the prefix of its subjects. It orders
 // itself after the work queue and the schema too, so the domain layer
 // starts after all of its infrastructure and after the migrations; every
-// domain node orders itself after the schema. The submissions node Uses
-// it. The uploads node is domain/uploads's Service,
-// go-web-sdk's upload.Store over the sql and the storage, its chunks under
-// the objects block's upload prefix; it mounts /api/uploads, go-web-sdk's
-// upload handler, with the server block's Transfer at the uploads block's
-// chunk size and the uploads block's lifetime, each completed upload
-// handed to the submissions node's Complete, and the sweeper Uses it for
-// its reclaimer. The submissions node is domain/submissions's Service,
-// Submit, Complete, and CompleteUpload, over the sql, the input, the job
-// root, and the work queue, handed the submissions block's small-document
-// limit and retention and the uploads block's lifetime; it mounts
-// /api/jobs, Submit, and /api/uploads/{id}/complete, CompleteUpload, and
-// the sweeper Uses it for its two reclaimers. The jobs node mounts
-// /api/jobs/{id}, GetJob, and /api/jobs/{id}/cancel, CancelJob. The
-// outputs node is domain/outputs's Service, GetOutput, over the content;
-// it mounts /api/outputs/{sha256}, handed the server block's Transfer for
-// the write deadline of the content it streams.
-// A package that does own a
-// resource and run belongs in the infrastructure layer, if it is built once
-// at startup, or the reactors layer, if it reacts to an external occurrence
-// for the life of the process. Each domain layer's route group mounts into
-// the /api group, its handler handed, at the construction site, its
-// service, its policy from the config node (cfg.Reads.Limits() for a
-// collection read), and the logger for its error writer
-// (web.NewErrorWriter(logger, ...)); a route that moves a large body is
-// handed the server block's Transfer for its deadlines.
+// domain node orders itself after the schema. The submissions node Uses it.
+// The uploads node is domain/uploads's Service, go-web-sdk's upload.Store
+// over the sql and the storage, its chunks under the objects block's upload
+// prefix; it mounts /api/uploads, go-web-sdk's upload handler, with the
+// server block's Transfer at the uploads block's chunk size and the uploads
+// block's lifetime, each completed upload handed to the submissions node's
+// Complete, and the sweeper Uses it for its reclaimer. The submissions node
+// is domain/submissions's Service, Submit, Complete, and CompleteUpload,
+// over the sql, the input, the job root, and the work queue, handed the
+// submissions block's small-document limit and retention and the uploads
+// block's lifetime; it mounts /api/jobs, Submit, and
+// /api/uploads/{id}/complete, CompleteUpload, and the sweeper Uses it for
+// its two reclaimers. The jobs node mounts /api/jobs/{id}, GetJob, and
+// /api/jobs/{id}/cancel, CancelJob. The outputs node is domain/outputs's
+// Service, GetOutput, over the content; it mounts /api/outputs/{sha256},
+// handed the server block's Transfer for the write deadline of the content
+// it streams. A package that does own a resource and run belongs in the
+// infrastructure layer, if it is built once at startup, or the reactors
+// layer, if it reacts to an external occurrence for the life of the
+// process. Each domain layer's route group mounts into the /api group, its
+// handler handed, at the construction site, its service, its policy from
+// the config node (cfg.Reads.Limits() for a collection read), and the
+// logger for its error writer (web.NewErrorWriter(logger, ...)); a route
+// that moves a large body is handed the server block's Transfer for its
+// deadlines.
 //
 // A reactor runs for the process lifetime, driven by an occurrence (a
 // subscription, an interval, a wake on demand) rather than a caller, the
@@ -163,22 +162,20 @@
 // failure.
 //
 // The sweeper is the service's one reactor: go-database's sweep.Sweeper,
-// its interval and pass budget from the sweep block, over nine
-// reclaimers, each under its own advisory lock: index, docproc's index
-// retention at the block's index_age; outbox and inbox, go-messaging's
-// retention of the published outbox rows and the handled inbox rows at
-// outbox_age and inbox_age; content and input, an expiry.Reclaimer over
-// the storage for each of the objects block's content and input
-// prefixes, at content_age and input_age; uploads, the uploads node's
-// reclaimer of the expired uploads' rows; upload objects, an
-// expiry.Reclaimer over the upload prefix at twice the uploads block's
-// lifetime; submissions, the submissions node's reclaimer of the expired
-// submission records; and completed uploads, its reclaimer of the
-// completed upload records past the uploads block's lifetime. It Uses the
-// sql, the storage, and the
-// uploads and submissions nodes and
-// orders itself after the schema, so its first pass finds the migrated
-// tables and a started store.
+// its interval and pass budget from the sweep block, over nine reclaimers,
+// each under its own advisory lock: index, docproc's index retention at the
+// block's index_age; outbox and inbox, go-messaging's retention of the
+// published outbox rows and the handled inbox rows at outbox_age and
+// inbox_age; content and input, an expiry.Reclaimer over the storage for
+// each of the objects block's content and input prefixes, at content_age
+// and input_age; uploads, the uploads node's reclaimer of the expired
+// uploads' rows; upload objects, an expiry.Reclaimer over the upload prefix
+// at twice the uploads block's lifetime; submissions, the submissions
+// node's reclaimer of the expired submission records; and completed
+// uploads, its reclaimer of the completed upload records past the uploads
+// block's lifetime. It Uses the sql, the storage, and the uploads and
+// submissions nodes and orders itself after the schema, so its first pass
+// finds the migrated tables and a started store.
 //
 // The request edge's readiness is a fresh node, so each Build's starts
 // unbound, ready for the Coordinator that Build's System is handed to. The

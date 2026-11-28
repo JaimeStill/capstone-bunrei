@@ -46,10 +46,10 @@ type Nodes struct {
 
 	// Infrastructure (infrastructure.go). SQL is the sqlate session over
 	// the database's pool, which the schema, the domain stores, and the
-	// sweeper share. Content is docproc's content store and Input the store
-	// of each job's staged input, both over the storage node. JobJournal is the NATS broker that owns
-	// the BUNREI_JOBS stream, and WorkQueue the NATS work queue that owns
-	// the BUNREI_WORK stream.
+	// sweeper share. Content is docproc's content store and Input the
+	// store of each job's staged input, both over the storage node.
+	// JobJournal is the NATS broker that owns the BUNREI_JOBS stream, and
+	// WorkQueue the NATS work queue that owns the BUNREI_WORK stream.
 	LifecycleConfig *graph.Node[lifecycle.Config]
 	Logger          *graph.Node[*slog.Logger]
 	Database        *graph.Node[*database.DB]
@@ -85,9 +85,8 @@ type Nodes struct {
 	// retention, the expiry of the content and input prefixes, the uploads
 	// store's reclaimer of expired uploads, the expiry of the upload
 	// prefix, and Submit's reclaimers of expired submission records and
-	// expired completed upload records. It
-	// orders itself after the schema, so its passes find the tables the
-	// migrations create.
+	// expired completed upload records. It orders itself after the schema,
+	// so its passes find the tables the migrations create.
 	Reactors *graph.Group
 	Sweeper  *graph.Node[*sweep.Sweeper]
 

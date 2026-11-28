@@ -45,13 +45,13 @@
 //   - [AttemptFailed]: attempt.failed's, the attempt and its error;
 //   - [Failed]: failed's, the attempt and its error.
 //
-// The error type is [Problem]. A refusal is an RFC 9457 problem whose type is [ProblemPrefix] followed by its name:
-// [ProblemInvalidRequest], [ProblemContentTooLarge], [ProblemExtractionTooLarge],
-// [ProblemSubmitConflict], [ProblemJobNotFound], [ProblemJobEnded], [ProblemOutputNotFound], and
-// [ProblemUploadNotFound]. The Client returns one as a [*Problem], and errors.Is matches it
-// against the sentinel of its type: [ErrInvalidRequest], [ErrContentTooLarge],
-// [ErrExtractionTooLarge], [ErrSubmitConflict], [ErrJobNotFound], [ErrJobEnded],
-// [ErrOutputNotFound], and [ErrUploadNotFound].
+// The error type is [Problem]. A refusal is an RFC 9457 problem whose type is [ProblemPrefix]
+// followed by its name: [ProblemInvalidRequest], [ProblemContentTooLarge],
+// [ProblemExtractionTooLarge], [ProblemSubmitConflict], [ProblemJobNotFound], [ProblemJobEnded],
+// [ProblemOutputNotFound], and [ProblemUploadNotFound]. The Client returns one as a [*Problem],
+// and errors.Is matches it against the sentinel of its type: [ErrInvalidRequest],
+// [ErrContentTooLarge], [ErrExtractionTooLarge], [ErrSubmitConflict], [ErrJobNotFound],
+// [ErrJobEnded], [ErrOutputNotFound], and [ErrUploadNotFound].
 //
 // Each type's JSON is its wire shape, with snake_case member names, at the wire version
 // [Version], 1, which grows by addition only. Bunrei's events name it in their dataschema,
