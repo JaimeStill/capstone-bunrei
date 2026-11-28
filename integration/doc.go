@@ -7,6 +7,13 @@
 //
 //   - [Main] is the suite's TestMain: it builds cmd/server once per run.
 //   - [Options] holds the BUNREI_* overrides one service process adds.
+//     The harness points every process at the compose database through
+//     BUNREI_DATABASE_HOST, BUNREI_DATABASE_PORT, and
+//     BUNREI_DATABASE_PASSWORD, taking each from its own environment when
+//     set, as mise run integration sets them, and otherwise from the
+//     compose stack's defaults.
+//   - [Database] opens the harness's own pool on that database, to read
+//     beneath the API.
 //   - [Start] runs the service on a reserved port and returns once it is
 //     live; [Launch] returns without waiting, and [Service.Ready] waits.
 //   - [Service] is one running process: [Service.Addr], [Service.URL], and

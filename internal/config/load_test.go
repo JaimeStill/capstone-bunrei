@@ -24,7 +24,7 @@ func inDir(t *testing.T, files map[string]string) {
 }
 
 func TestLoad_ShutdownTimeoutIsTopLevelKey(t *testing.T) {
-	inDir(t, map[string]string{"config.json": `{"shutdown_timeout": "3s"}`})
+	inDir(t, map[string]string{"config.json": `{"shutdown_timeout": "3s", "database": {"name": "app"}}`})
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -36,7 +36,7 @@ func TestLoad_ShutdownTimeoutIsTopLevelKey(t *testing.T) {
 }
 
 func TestLoad_ShutdownTimeoutDefaultsTo10s(t *testing.T) {
-	inDir(t, map[string]string{"config.json": `{}`})
+	inDir(t, map[string]string{"config.json": `{"database": {"name": "app"}}`})
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -48,7 +48,7 @@ func TestLoad_ShutdownTimeoutDefaultsTo10s(t *testing.T) {
 }
 
 func TestLoad_EnvOverridesFileShutdownTimeout(t *testing.T) {
-	inDir(t, map[string]string{"config.json": `{"shutdown_timeout": "3s"}`})
+	inDir(t, map[string]string{"config.json": `{"shutdown_timeout": "3s", "database": {"name": "app"}}`})
 	t.Setenv("BUNREI_SHUTDOWN_TIMEOUT", "4s")
 
 	cfg, err := config.Load()
@@ -71,7 +71,7 @@ func TestLoad_OverlayShutdownTimeout(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			inDir(t, map[string]string{
-				"config.json":      `{"shutdown_timeout": "3s"}`,
+				"config.json":      `{"shutdown_timeout": "3s", "database": {"name": "app"}}`,
 				"config.test.json": tc.overlay,
 			})
 			t.Setenv("BUNREI_ENV", "test")

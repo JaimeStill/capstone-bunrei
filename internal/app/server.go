@@ -9,7 +9,7 @@ import (
 func defineServer(g *graph.Graph, n *Nodes) {
 	n.Readiness = g.Fresh[lifecycle.Readiness]("readiness")
 	n.Router = g.Define("router", n.newRouter)
-	n.Server = g.Define("server", n.newServer, graph.After(n.Reactors))
+	n.Server = g.Define("server", n.newServer, graph.After(n.Reactors, n.Schema))
 }
 
 func (n *Nodes) newRouter(s *graph.Scope) (*web.Router, error) {

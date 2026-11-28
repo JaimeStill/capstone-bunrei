@@ -84,13 +84,13 @@ description = "Run the unit tier"
 run = "go test -race ./..."
 
 [tasks.integration]
-description = "Start the isolated compose stack on its own ports, run the integration tier against the built service, print the stack's logs on a failure, and tear the stack down with its volumes"
+description = "Start the isolated compose stack on its own ports, run the integration tier against the built service pointed at the stack's database, print the stack's logs on a failure, and tear the stack down with its volumes"
 run = '''
 set -e
 export COMPOSE_PROJECT_NAME=capstone-bunrei-integration NATS_PORT=4227 POSTGRES_PORT=5443 SEAWEEDFS_S3_PORT=8338
 trap 'rc=$?; [ $rc -eq 0 ] || docker compose logs; docker compose down -v; exit $rc' EXIT
 docker compose up -d --wait --build
-go test -race -count=1 -tags integration ./integration/
+BUNREI_DATABASE_HOST=127.0.0.1 BUNREI_DATABASE_PORT=$POSTGRES_PORT BUNREI_DATABASE_PASSWORD=app go test -race -count=1 -tags integration ./integration/
 '''
 
 [tasks.fmt]

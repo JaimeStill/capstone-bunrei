@@ -7,6 +7,8 @@ import (
 
 	"github.com/standards-lab/go-core/graph"
 	"github.com/standards-lab/go-core/lifecycle"
+	"github.com/standards-lab/go-database"
+	"github.com/standards-lab/go-database/admin"
 	"github.com/standards-lab/go-web-sdk"
 
 	"github.com/JaimeStill/capstone-bunrei/internal/config"
@@ -36,6 +38,12 @@ type Nodes struct {
 	// Infrastructure (infrastructure.go).
 	LifecycleConfig *graph.Node[lifecycle.Config]
 	Logger          *graph.Node[*slog.Logger]
+	Database        *graph.Node[*database.DB]
+
+	// Admin (admin.go): the schema is one of [App.Roots] until a domain
+	// node Uses it, and the server orders itself after it, so the schema
+	// is current before the service takes a request.
+	Schema *graph.Node[*admin.Service]
 
 	// Reactors (reactors.go): the group each reactor joins with graph.In.
 	// A reactor is reached by no Use, so the group is one of [App.Roots],
@@ -79,12 +87,13 @@ func (a *App) Nodes() Nodes { return a.nodes }
 // Roots returns the service's root set, the nodes a Build of the whole
 // service starts from: the server, which reaches the router, the
 // readiness, the logger, the writer node, and the config node through its
-// Uses and theirs, and the reactors group, whose members no Use reaches.
+// Uses and theirs; the reactors group, whose members no Use reaches; and
+// the schema, which reaches the database.
 // [App.Run] builds this set plus the lifecycle config node the Coordinator
 // is configured from.
 func (a *App) Roots() []graph.Ref {
 	n := a.nodes
-	return []graph.Ref{n.Server, n.Reactors}
+	return []graph.Ref{n.Server, n.Reactors, n.Schema}
 }
 
 // Run runs the service as a web.Service over [App.Roots] until ctx ends,

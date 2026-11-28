@@ -1,7 +1,8 @@
 // Package config declares the service's layered configuration.
 //
-//   - [Config] is the root: the library capability blocks (log, server),
-//     the service-owned read policy, and the shutdown timeout. The timeout
+//   - [Config] is the root: the library capability blocks (log, server,
+//     and go-database's connection block, whose name is required), the
+//     service-owned read policy, and the shutdown timeout. The timeout
 //     comes from go-core's lifecycle.Config, embedded by value and untagged,
 //     so shutdown_timeout is a top-level key, and Config.Config is the block
 //     the composition root hands the lifecycle Coordinator. Its Merge and

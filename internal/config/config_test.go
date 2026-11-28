@@ -10,6 +10,7 @@ import (
 	"github.com/standards-lab/go-web-sdk"
 
 	"github.com/JaimeStill/capstone-bunrei/internal/config"
+	"github.com/JaimeStill/capstone-bunrei/internal/config/configtest"
 )
 
 func TestConfig_MergeOverlaysSetFields(t *testing.T) {
@@ -35,7 +36,7 @@ func TestConfig_MergeOverlaysSetFields(t *testing.T) {
 }
 
 func TestConfig_FinalizeDefaults(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := configtest.Minimal()
 	if err := cfg.Finalize(""); err != nil {
 		t.Fatalf("Finalize: %v", err)
 	}
@@ -57,7 +58,7 @@ func TestConfig_FinalizeReadsEnvUnderPrefix(t *testing.T) {
 	t.Setenv("BUNREI_LOG_LEVEL", "error")
 	t.Setenv("BUNREI_SERVER_PORT", "7070")
 
-	cfg := &config.Config{}
+	cfg := configtest.Minimal()
 	if err := cfg.Finalize("svc"); err != nil {
 		t.Fatalf("Finalize: %v", err)
 	}
@@ -75,7 +76,7 @@ func TestConfig_FinalizeEnvOverrides(t *testing.T) {
 	t.Setenv("BUNREI_LOG_LEVEL", "debug")
 	t.Setenv("BUNREI_SERVER_PORT", "9090")
 
-	cfg := &config.Config{}
+	cfg := configtest.Minimal()
 	if err := cfg.Finalize("bunrei"); err != nil {
 		t.Fatalf("Finalize: %v", err)
 	}
@@ -96,7 +97,7 @@ func TestConfig_FinalizeRejectsNonPositiveShutdownTimeout(t *testing.T) {
 		t.Run(v, func(t *testing.T) {
 			t.Setenv("BUNREI_SHUTDOWN_TIMEOUT", v)
 
-			cfg := &config.Config{}
+			cfg := configtest.Minimal()
 			err := cfg.Finalize("bunrei")
 			if err == nil {
 				t.Fatalf("Finalize accepted shutdown_timeout %s", v)
@@ -119,7 +120,7 @@ func TestConfig_FinalizeRejectsNonPositiveFileShutdownTimeout(t *testing.T) {
 func TestConfig_FinalizeRejectsUnparsableShutdownTimeout(t *testing.T) {
 	t.Setenv("BUNREI_SHUTDOWN_TIMEOUT", "soon")
 
-	cfg := &config.Config{}
+	cfg := configtest.Minimal()
 	err := cfg.Finalize("bunrei")
 	if err == nil {
 		t.Fatal("Finalize accepted an unparsable BUNREI_SHUTDOWN_TIMEOUT")
@@ -133,7 +134,8 @@ func TestConfig_FinalizeEmptyPrefixReadsNoShutdownOverride(t *testing.T) {
 	t.Setenv("BUNREI_SHUTDOWN_TIMEOUT", "30s")
 	t.Setenv("SHUTDOWN_TIMEOUT", "30s")
 
-	cfg := &config.Config{ShutdownTimeout: libconfig.Duration(3 * time.Second)}
+	cfg := configtest.Minimal()
+	cfg.ShutdownTimeout = libconfig.Duration(3 * time.Second)
 	if err := cfg.Finalize(""); err != nil {
 		t.Fatalf("Finalize: %v", err)
 	}
@@ -154,7 +156,7 @@ func TestConfig_MergeOverlayShutdownTimeoutReplacesBase(t *testing.T) {
 func TestConfig_FinalizeWrapsChildErrors(t *testing.T) {
 	t.Setenv("BUNREI_LOG_LEVEL", "verbose")
 
-	cfg := &config.Config{}
+	cfg := configtest.Minimal()
 	err := cfg.Finalize("bunrei")
 	if err == nil {
 		t.Fatal("Finalize accepted an invalid log level")
@@ -165,7 +167,7 @@ func TestConfig_FinalizeWrapsChildErrors(t *testing.T) {
 }
 
 func TestReads_FinalizeDefaults(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := configtest.Minimal()
 	if err := cfg.Finalize(""); err != nil {
 		t.Fatalf("Finalize: %v", err)
 	}
@@ -200,7 +202,7 @@ func TestReads_FinalizeEnvOverrides(t *testing.T) {
 	t.Setenv("BUNREI_READS_DEFAULT_SIZE", "25")
 	t.Setenv("BUNREI_READS_MAX_SIZE", "250")
 
-	cfg := &config.Config{}
+	cfg := configtest.Minimal()
 	if err := cfg.Finalize("bunrei"); err != nil {
 		t.Fatalf("Finalize: %v", err)
 	}
@@ -229,7 +231,7 @@ func TestReads_FinalizeRejectsInvalidPolicy(t *testing.T) {
 			t.Setenv("BUNREI_READS_DEFAULT_SIZE", tc.defaultSize)
 			t.Setenv("BUNREI_READS_MAX_SIZE", tc.maxSize)
 
-			cfg := &config.Config{}
+			cfg := configtest.Minimal()
 			err := cfg.Finalize("bunrei")
 			if err == nil {
 				t.Fatal("Finalize accepted an invalid reads policy")
@@ -238,5 +240,59 @@ func TestReads_FinalizeRejectsInvalidPolicy(t *testing.T) {
 				t.Errorf("error = %v, want the reads block wrap naming %s", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestDatabase_MergeOverlaysSetFields(t *testing.T) {
+	base := configtest.Minimal()
+	base.Database.User = "app"
+	base.Database.Options = map[string]string{"sslmode": "disable"}
+
+	overlay := &config.Config{}
+	overlay.Database.Host = "127.0.0.1"
+	overlay.Database.Port = new(5443)
+
+	base.Merge(overlay)
+
+	if base.Database.Host != "127.0.0.1" || base.Database.Port == nil || *base.Database.Port != 5443 {
+		t.Errorf("Database address = %s:%v, want the overlay's 127.0.0.1:5443", base.Database.Host, base.Database.Port)
+	}
+	if base.Database.Name != "app" || base.Database.User != "app" || base.Database.Options["sslmode"] != "disable" {
+		t.Errorf("Database = %+v, want the base's name, user, and options kept", base.Database)
+	}
+}
+
+func TestDatabase_FinalizeEnvOverrides(t *testing.T) {
+	t.Setenv("BUNREI_DATABASE_HOST", "db.internal")
+	t.Setenv("BUNREI_DATABASE_PORT", "5443")
+	t.Setenv("BUNREI_DATABASE_NAME", "bunrei")
+	t.Setenv("BUNREI_DATABASE_USER", "svc")
+	t.Setenv("BUNREI_DATABASE_PASSWORD", "secret")
+
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize("bunrei"); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	db := cfg.Database
+	if db.Host != "db.internal" || db.Port == nil || *db.Port != 5443 {
+		t.Errorf("Database address = %s:%v, want db.internal:5443", db.Host, db.Port)
+	}
+	if db.Name != "bunrei" || db.User != "svc" || db.Password != "secret" {
+		t.Errorf("Database identity = %s/%s/%s, want bunrei/svc/secret", db.Name, db.User, db.Password)
+	}
+	if db.Env.Port != "BUNREI_DATABASE_PORT" {
+		t.Errorf("Database.Env.Port = %q, want BUNREI_DATABASE_PORT", db.Env.Port)
+	}
+}
+
+func TestDatabase_FinalizeRequiresName(t *testing.T) {
+	cfg := &config.Config{}
+	err := cfg.Finalize("")
+	if err == nil {
+		t.Fatal("Finalize accepted a database block without a name")
+	}
+	if !strings.Contains(err.Error(), "database:") {
+		t.Errorf("error = %v, want the database block wrap", err)
 	}
 }

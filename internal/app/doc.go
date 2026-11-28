@@ -4,8 +4,8 @@
 // the layer files are the architecture's layer list:
 //
 //   - infrastructure.go: defineInfrastructure, the lifecycle configuration
-//     and the services the application is composed on (the logger, in the
-//     template baseline);
+//     and the services the application is composed on: the logger and the
+//     PostgreSQL pool;
 //   - admin.go: defineAdmin, the administrative services, and their /admin
 //     mount;
 //   - domain.go: defineDomain, the domain services, and their /api mount;
@@ -60,10 +60,10 @@
 //
 // The infrastructure layer holds the lifecycle config the Coordinator is
 // configured from and the services the application is composed on, read
-// from the config node: the logger, written to the writer node, in the
-// template baseline; a database pool, storage, or auth client as a service
-// grows, each its own node, with any order it needs declared on its Define
-// line. A service whose value implements lifecycle.Subsystem takes part in
+// from the config node: the logger, written to the writer node, and the
+// database, go-database's PostgreSQL pool over the database block; storage
+// or an auth client joins as the service grows, each its own node, with any
+// order it needs declared on its Define line. A service whose value implements lifecycle.Subsystem takes part in
 // startup and shutdown through its own methods, and its constructor opens
 // nothing: connectivity belongs to its Start, so a failed Build leaks no
 // connections.
@@ -75,9 +75,13 @@
 // it administers is a lifecycle participant, and the domains that depend
 // on that state Use it. Each admin domain's route group mounts into the
 // /admin group, with its service and the logger for its error writer read
-// with Use. The template defines none and ships the /admin group empty;
-// which admin services a service composes follows the infrastructure it
-// adopts. In production the admin mount belongs on its own listener,
+// with Use. The schema is go-database's admin.Service over the database:
+// its Start applies, bottom-first, docproc's index set, docinfer's cache
+// set, and go-messaging's outbox and inbox set, and its Ready joins the
+// readiness probe beside the database's. It is one of [App.Roots] until a
+// domain node Uses it, and the server orders itself after it, so the schema
+// is current before the first request. It mounts no routes yet, and the
+// /admin group ships empty. In production the admin mount belongs on its own listener,
 // authenticated and unreachable from the public API's network path, an
 // isolation the application settles when the first admin service arrives.
 //

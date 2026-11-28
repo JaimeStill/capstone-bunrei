@@ -12,6 +12,20 @@
     "idle_timeout": "2m",
     "transfer_rate": 65536
   },
+  "database": {
+    "host": "127.0.0.1",
+    "port": 5432,
+    "name": "app",
+    "user": "app",
+    "max_open_conns": 25,
+    "max_idle_conns": 5,
+    "conn_max_lifetime": "15m",
+    "conn_max_idle_time": "5m",
+    "conn_timeout": "5s",
+    "options": {
+      "sslmode": "disable"
+    }
+  },
   "reads": {
     "default_size": 20,
     "max_size": 100

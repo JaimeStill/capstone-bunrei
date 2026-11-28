@@ -14,6 +14,7 @@ import (
 
 	"github.com/standards-lab/go-core/graph"
 	"github.com/standards-lab/go-core/graph/graphtest"
+	"github.com/standards-lab/go-core/lifecycle"
 	"github.com/standards-lab/go-core/reactor"
 	"github.com/standards-lab/go-web-sdk"
 
@@ -152,6 +153,44 @@ func TestGraph_ServerAboveReactor(t *testing.T) {
 		sys := buildAsRun(t, a, stray)
 		wantGuardFails(t, serverAlone(sys, a.Nodes().Server), sys, "stray")
 	})
+}
+
+func TestGraph_ReadinessChecks(t *testing.T) {
+	cfg := configtest.Config(t)
+	a := app.New(cfg, io.Discard)
+	sys := buildAsRun(t, a)
+
+	var got []string
+	for _, c := range lifecycle.New(sys, cfg.Config).Checks() {
+		got = append(got, c.Name)
+	}
+	want := []string{"database", "schema"}
+	if !slices.Equal(got, want) {
+		t.Errorf("checks = %v, want %v", got, want)
+	}
+}
+
+func TestGraph_SchemaBetweenTheDatabaseAndTheServer(t *testing.T) {
+	a := app.New(configtest.Config(t), io.Discard)
+	sys := buildAsRun(t, a)
+	n := a.Nodes()
+
+	for _, r := range []graph.Ref{n.Database, n.Schema, n.Server} {
+		if !sys.Has(r) {
+			t.Fatalf("%s is not in the System\nlayers:\n%s", r.Name(), sys)
+		}
+	}
+	below := func(lower, upper graph.Ref) {
+		t.Helper()
+		if l, u := sys.LayerOf(lower), sys.LayerOf(upper); l >= u {
+			t.Errorf("%s in layer %d, %s in layer %d; want %s below", lower.Name(), l, upper.Name(), u, lower.Name())
+		}
+	}
+	below(n.Database, n.Schema)
+	below(n.Schema, n.Server)
+	if t.Failed() {
+		t.Logf("layers:\n%s", sys)
+	}
 }
 
 func rootDrops(a *app.App, roots []graph.Ref) error {

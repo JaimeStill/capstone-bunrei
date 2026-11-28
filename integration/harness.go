@@ -1,13 +1,39 @@
 package integration
 
 import (
+	"context"
+	"database/sql"
 	"net"
+	"os"
 	"strconv"
 	"testing"
 
 	"github.com/standards-lab/go-core/process/processtest"
+	"github.com/standards-lab/go-database"
+	"github.com/standards-lab/go-database/postgres"
 	"github.com/standards-lab/go-web-sdk/webtest"
 )
+
+const (
+	defaultDatabaseHost     = "127.0.0.1"
+	defaultDatabasePort     = "5443"
+	defaultDatabasePassword = "app"
+)
+
+func getenv(name, def string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return def
+}
+
+func databaseHostPort() (host, port string) {
+	return getenv("BUNREI_DATABASE_HOST", defaultDatabaseHost), getenv("BUNREI_DATABASE_PORT", defaultDatabasePort)
+}
+
+func databasePassword() string {
+	return getenv("BUNREI_DATABASE_PASSWORD", defaultDatabasePassword)
+}
 
 // Main is the suite's TestMain: it builds cmd/server once, with the race
 // detector so the service runs under it too, runs the tests, and removes
@@ -17,7 +43,8 @@ func Main(m *testing.M) {
 }
 
 // Options shapes one service process. The zero value runs the service on
-// the base configuration file and the harness's own variables alone.
+// the base configuration file and the harness's own variables alone,
+// against the compose database.
 type Options struct {
 	// Env appends further KEY=VALUE overrides, applied last.
 	Env []string
@@ -61,12 +88,16 @@ func (s *Service) Ready(t testing.TB) *Service {
 
 func environment(opts Options, addr string) []string {
 	host, port, _ := net.SplitHostPort(addr)
+	dbHost, dbPort := databaseHostPort()
 	env := []string{
 		"BUNREI_ENV=",
 		"BUNREI_LOG_LEVEL=debug",
 		"BUNREI_LOG_FORMAT=text",
 		"BUNREI_SERVER_HOST=" + host,
 		"BUNREI_SERVER_PORT=" + port,
+		"BUNREI_DATABASE_HOST=" + dbHost,
+		"BUNREI_DATABASE_PORT=" + dbPort,
+		"BUNREI_DATABASE_PASSWORD=" + databasePassword(),
 	}
 	return append(env, opts.Env...)
 }
@@ -80,3 +111,36 @@ func (s *Service) URL() string { return "http://" + s.addr }
 // Client returns the client bound to the service, one per process so its
 // connection is reused across calls.
 func (s *Service) Client() *webtest.Client { return s.client }
+
+// Database opens a pool on the compose database the harness points the
+// service at, so a test can read beneath the API what no route reaches,
+// such as the tables the startup migrations create. It is the harness's
+// pool, not the service's, and it is shut down at cleanup.
+func Database(t testing.TB) *sql.DB {
+	t.Helper()
+	host, port := databaseHostPort()
+	p, err := strconv.Atoi(port)
+	if err != nil {
+		t.Fatalf("database port %q: %v", port, err)
+	}
+	cfg := database.Config{
+		Host:     host,
+		Port:     &p,
+		Name:     "app",
+		User:     "app",
+		Password: databasePassword(),
+		Options:  map[string]string{"sslmode": "disable"},
+	}
+	if err := cfg.Finalize(""); err != nil {
+		t.Fatalf("database config: %v", err)
+	}
+	db, err := postgres.New(cfg)
+	if err != nil {
+		t.Fatalf("database pool: %v", err)
+	}
+	if err := db.Start(context.Background()); err != nil {
+		t.Fatalf("start the database pool: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Shutdown(context.Background()) })
+	return db.Conn()
+}
