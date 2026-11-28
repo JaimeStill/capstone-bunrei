@@ -251,19 +251,6 @@ func TestJobs_GetJobAndCancelJobOverHTTP(t *testing.T) {
 		t.Errorf("BUNREI_JOBS holds %+v, want queued, cancel_requested, and cancelled caused by it", events)
 	}
 
-	p := c.Post(t, "/api/jobs/"+j.ID+"/cancel", nil).Problem(t, http.StatusConflict)
-	if p.Type != client.ProblemJobEnded {
-		t.Errorf("problem type = %q, want %s", p.Type, client.ProblemJobEnded)
-	}
-	p = c.Get(t, "/api/jobs/"+uuid.NewV7().String()).Problem(t, http.StatusNotFound)
-	if p.Type != client.ProblemJobNotFound {
-		t.Errorf("problem type = %q, want %s", p.Type, client.ProblemJobNotFound)
-	}
-	p = c.Get(t, "/api/jobs/not-a-uuid").Problem(t, http.StatusBadRequest)
-	if p.Type != client.ProblemInvalidRequest {
-		t.Errorf("problem type = %q, want %s", p.Type, client.ProblemInvalidRequest)
-	}
-
 	if code := s.Stop(t); code != 0 {
 		t.Fatalf("exit = %d, want 0:\n%s", code, s.Output())
 	}

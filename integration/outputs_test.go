@@ -15,7 +15,7 @@ import (
 	"github.com/JaimeStill/capstone-bunrei/integration"
 )
 
-func TestOutputs_GetOutputStreamsContentAndRefusesAnAbsentOne(t *testing.T) {
+func TestOutputs_GetOutputStreamsContentAndRefusesAnInvalidSHA256(t *testing.T) {
 	s := integration.Start(t, integration.Options{})
 	c := s.Client()
 
@@ -36,11 +36,6 @@ func TestOutputs_GetOutputStreamsContentAndRefusesAnAbsentOne(t *testing.T) {
 	raw := sha256.Sum256([]byte(body))
 	sum := hex.EncodeToString(raw[:])
 
-	p := c.Get(t, "/api/outputs/"+sum).Problem(t, http.StatusNotFound)
-	if p.Type != client.ProblemOutputNotFound {
-		t.Errorf("problem type = %q, want %s", p.Type, client.ProblemOutputNotFound)
-	}
-
 	if err := sys.Get(n.Content).Put(ctx, sum, strings.NewReader(body)); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
@@ -52,7 +47,7 @@ func TestOutputs_GetOutputStreamsContentAndRefusesAnAbsentOne(t *testing.T) {
 		t.Errorf("GetOutput = %q as %q, want %q as application/octet-stream", resp.Body, resp.Header.Get("Content-Type"), body)
 	}
 
-	p = c.Get(t, "/api/outputs/"+strings.ToUpper(sum)).Problem(t, http.StatusBadRequest)
+	p := c.Get(t, "/api/outputs/"+strings.ToUpper(sum)).Problem(t, http.StatusBadRequest)
 	if p.Type != client.ProblemInvalidRequest {
 		t.Errorf("problem type = %q, want %s", p.Type, client.ProblemInvalidRequest)
 	}

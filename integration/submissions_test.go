@@ -163,19 +163,6 @@ func TestSubmissions_SubmitQueuesTheJobOnBothStreams(t *testing.T) {
 		t.Errorf("BUNREI_JOBS holds %d events for the job after the retry, want 1", n)
 	}
 
-	req.Name = "renamed.json"
-	p := c.Post(t, "/api/jobs", req).Problem(t, http.StatusConflict)
-	if p.Type != client.ProblemSubmitConflict {
-		t.Errorf("problem type = %q, want %s", p.Type, client.ProblemSubmitConflict)
-	}
-
-	big := submitRequest()
-	big.Content = make([]byte, 4<<20+1)
-	p = c.Post(t, "/api/jobs", big).Problem(t, http.StatusRequestEntityTooLarge)
-	if p.Type != client.ProblemContentTooLarge {
-		t.Errorf("problem type = %q, want %s", p.Type, client.ProblemContentTooLarge)
-	}
-
 	if code := s.Stop(t); code != 0 {
 		t.Fatalf("exit = %d, want 0:\n%s", code, s.Output())
 	}

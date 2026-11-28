@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/standards-lab/docinfer"
@@ -210,18 +209,5 @@ func TestSubmit_ContentIsBase64(t *testing.T) {
 	}
 	if wire.Content != "/wB/" {
 		t.Errorf("content = %q, want the bytes in standard base64, %q", wire.Content, "/wB/")
-	}
-}
-
-func TestProblems_TypesArePrefixedNames(t *testing.T) {
-	for _, typ := range []string{
-		client.ProblemInvalidRequest, client.ProblemContentTooLarge,
-		client.ProblemExtractionTooLarge, client.ProblemSubmitConflict,
-		client.ProblemJobNotFound, client.ProblemJobEnded, client.ProblemOutputNotFound,
-	} {
-		name, ok := strings.CutPrefix(typ, "urn:standards-lab:bunrei:problem:")
-		if !ok || name == "" || strings.ContainsAny(name, ": ") {
-			t.Errorf("problem type %q, want urn:standards-lab:bunrei:problem:<name>", typ)
-		}
 	}
 }

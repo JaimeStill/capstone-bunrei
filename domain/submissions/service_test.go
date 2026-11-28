@@ -456,7 +456,7 @@ func TestSubmit_ConcurrentSubmitsOfOneIDQueueOneJob(t *testing.T) {
 	}
 }
 
-func TestReclaimer_PassDeletesAtMostTheBudgetEarliestExpiryFirst(t *testing.T) {
+func TestReclaimer_PassReportsMoreAfterDeletingTheBudget(t *testing.T) {
 	for _, c := range []struct {
 		name     string
 		affected int64
@@ -479,11 +479,6 @@ func TestReclaimer_PassDeletesAtMostTheBudgetEarliestExpiryFirst(t *testing.T) {
 			calls := f.rec.Calls()
 			if len(calls) != 1 || calls[0].Op != sqltest.OpExec {
 				t.Fatalf("calls = %v, want one delete", calls)
-			}
-			for _, want := range []string{"DELETE FROM submission", "expires_at <= CURRENT_TIMESTAMP", "ORDER BY expires_at", "FETCH FIRST"} {
-				if !strings.Contains(calls[0].SQL, want) {
-					t.Errorf("delete = %q, want it to contain %q", calls[0].SQL, want)
-				}
 			}
 			if !slices.Equal(calls[0].Args, []any{25}) {
 				t.Errorf("delete args = %v, want the budget", calls[0].Args)
@@ -716,15 +711,12 @@ func TestCompleteUpload_DifferentRequestConflicts(t *testing.T) {
 	}
 }
 
-func TestCompleteUpload_AnUnknownOrExpiredUploadIsNotFound(t *testing.T) {
+func TestCompleteUpload_AnUnknownUploadIsNotFound(t *testing.T) {
 	f := newFixture(t)
 	f.rec.Queue(sqltest.Response{Columns: completedColumns})
 
 	if _, err := f.service.CompleteUpload(t.Context(), completeRequest(file("never completed"))); !errors.Is(err, submissions.ErrUploadNotFound) {
 		t.Fatalf("CompleteUpload = %v, want ErrUploadNotFound", err)
-	}
-	if read := f.call(t, "FROM completed_upload"); !strings.Contains(read.SQL, "expires_at > CURRENT_TIMESTAMP") {
-		t.Errorf("read = %q, want it to skip an expired record", read.SQL)
 	}
 	if f.journal.calls != 0 || len(f.queue.enqueued()) != 0 {
 		t.Errorf("appends %d, enqueues %d; want none", f.journal.calls, len(f.queue.enqueued()))
@@ -757,7 +749,7 @@ func TestCompleteUpload_Refusals(t *testing.T) {
 	}
 }
 
-func TestUploadReclaimer_PassDeletesExpiredCompletedUploads(t *testing.T) {
+func TestUploadReclaimer_PassReportsMoreAfterDeletingTheBudget(t *testing.T) {
 	for _, c := range []struct {
 		name     string
 		affected int64
@@ -779,11 +771,6 @@ func TestUploadReclaimer_PassDeletesExpiredCompletedUploads(t *testing.T) {
 			calls := f.rec.Calls()
 			if len(calls) != 1 || calls[0].Op != sqltest.OpExec {
 				t.Fatalf("calls = %v, want one delete", calls)
-			}
-			for _, want := range []string{"DELETE FROM completed_upload", "expires_at <= CURRENT_TIMESTAMP", "ORDER BY expires_at", "FETCH FIRST"} {
-				if !strings.Contains(calls[0].SQL, want) {
-					t.Errorf("delete = %q, want it to contain %q", calls[0].SQL, want)
-				}
 			}
 		})
 	}

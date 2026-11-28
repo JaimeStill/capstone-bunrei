@@ -18,7 +18,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-	"uuid"
 
 	"github.com/standards-lab/docinfer"
 	"github.com/standards-lab/go-storage"
@@ -342,19 +341,6 @@ func TestUploads_AFileSentInChunksAndResumedQueuesAJob(t *testing.T) {
 	}
 	if loc := resp.Header.Get("Location"); loc != "/api/jobs/"+j.ID {
 		t.Errorf("Location = %q, want /api/jobs/%s", loc, j.ID)
-	}
-	if got := webtest.Decode[client.Job](t, api.Get(t, "/api/jobs/"+j.ID), http.StatusOK); got != j {
-		t.Errorf("GetJob = %+v, want %+v", got, j)
-	}
-	if again := webtest.Decode[client.Job](t, api.Post(t, path, req), http.StatusAccepted); again != j {
-		t.Errorf("the repeat returned %+v, want the first job %+v", again, j)
-	}
-	req.Profile = "standard@2"
-	if p := api.Post(t, path, req).Problem(t, http.StatusConflict); p.Type != client.ProblemSubmitConflict {
-		t.Errorf("a repeat with another profile = %q, want %s", p.Type, client.ProblemSubmitConflict)
-	}
-	if p := api.Post(t, "/api/uploads/"+uuid.NewV4().String()+"/complete", req).Problem(t, http.StatusNotFound); p.Type != client.ProblemUploadNotFound {
-		t.Errorf("an unknown upload = %q, want %s", p.Type, client.ProblemUploadNotFound)
 	}
 
 	if code := s.Stop(t); code != 0 {

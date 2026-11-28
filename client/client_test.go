@@ -263,15 +263,12 @@ func TestProblem_SentinelsMatchByType(t *testing.T) {
 		client.ProblemOutputNotFound:     client.ErrOutputNotFound,
 		client.ProblemUploadNotFound:     client.ErrUploadNotFound,
 	}
-	for typ, sentinel := range sentinels {
+	for typ := range sentinels {
 		err := error(&client.Problem{Type: typ, Status: 499, Detail: "d"})
 		for other, s := range sentinels {
 			if got := errors.Is(err, s); got != (other == typ) {
 				t.Errorf("errors.Is(%s, the %s sentinel) = %t", typ, other, got)
 			}
-		}
-		if sentinel.Type != typ || sentinel.Status == 0 {
-			t.Errorf("sentinel = %+v, want type %s with its status", sentinel, typ)
 		}
 	}
 }

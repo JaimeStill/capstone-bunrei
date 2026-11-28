@@ -18,6 +18,8 @@ import (
 	"github.com/standards-lab/go-storage"
 	"github.com/standards-lab/go-web-sdk/upload"
 
+	"github.com/JaimeStill/capstone-bunrei/client"
+	"github.com/JaimeStill/capstone-bunrei/domain/submissions"
 	"github.com/JaimeStill/capstone-bunrei/integration"
 )
 
@@ -164,6 +166,9 @@ func TestSweep_ReclaimsAnAgedCompletedUpload(t *testing.T) {
 	aged := complete("a document completed a while ago")
 	time.Sleep(2500 * time.Millisecond)
 	fresh := complete("a document just completed")
+	if _, err := submit.CompleteUpload(ctx, client.CompleteUpload{Upload: aged, Profile: "standard@1"}); !errors.Is(err, submissions.ErrUploadNotFound) {
+		t.Errorf("CompleteUpload of the aged upload before its reclaim = %v, want ErrUploadNotFound", err)
+	}
 
 	sweeper := sys.Get(n.Sweeper)
 	start(t, "sweeper", sweeper)
