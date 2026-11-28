@@ -344,8 +344,8 @@ func TestObjects_FinalizeDefaults(t *testing.T) {
 	}
 
 	o := cfg.Objects
-	if *o.ContentPrefix != "content/" || *o.InputPrefix != "input/" {
-		t.Errorf("Objects prefixes = %q, %q, want content/ and input/", *o.ContentPrefix, *o.InputPrefix)
+	if *o.ContentPrefix != "content/" || *o.InputPrefix != "input/" || *o.UploadPrefix != "upload/" {
+		t.Errorf("Objects prefixes = %q, %q, %q, want content/, input/, and upload/", *o.ContentPrefix, *o.InputPrefix, *o.UploadPrefix)
 	}
 	if got := o.RenewAge.Duration(); got != 7*24*time.Hour {
 		t.Errorf("Objects.RenewAge = %s, want 168h", got)
@@ -376,6 +376,7 @@ func TestObjects_MergeOverlaysSetFields(t *testing.T) {
 func TestObjects_FinalizeEnvOverrides(t *testing.T) {
 	t.Setenv("BUNREI_OBJECTS_CONTENT_PREFIX", "c/")
 	t.Setenv("BUNREI_OBJECTS_INPUT_PREFIX", "i/")
+	t.Setenv("BUNREI_OBJECTS_UPLOAD_PREFIX", "u/")
 	t.Setenv("BUNREI_OBJECTS_RENEW_AGE", "24h")
 
 	cfg := configtest.Minimal()
@@ -384,12 +385,13 @@ func TestObjects_FinalizeEnvOverrides(t *testing.T) {
 	}
 
 	o := cfg.Objects
-	if *o.ContentPrefix != "c/" || *o.InputPrefix != "i/" || o.RenewAge.Duration() != 24*time.Hour {
-		t.Errorf("Objects = %q, %q, %s, want c/, i/, 24h", *o.ContentPrefix, *o.InputPrefix, o.RenewAge)
+	if *o.ContentPrefix != "c/" || *o.InputPrefix != "i/" || *o.UploadPrefix != "u/" || o.RenewAge.Duration() != 24*time.Hour {
+		t.Errorf("Objects = %q, %q, %q, %s, want c/, i/, u/, 24h", *o.ContentPrefix, *o.InputPrefix, *o.UploadPrefix, o.RenewAge)
 	}
 	want := config.ObjectsEnv{
 		ContentPrefix: "BUNREI_OBJECTS_CONTENT_PREFIX",
 		InputPrefix:   "BUNREI_OBJECTS_INPUT_PREFIX",
+		UploadPrefix:  "BUNREI_OBJECTS_UPLOAD_PREFIX",
 		RenewAge:      "BUNREI_OBJECTS_RENEW_AGE",
 	}
 	if o.Env != want {
@@ -399,20 +401,24 @@ func TestObjects_FinalizeEnvOverrides(t *testing.T) {
 
 func TestObjects_FinalizeRejectsInvalidLayout(t *testing.T) {
 	cases := map[string]struct {
-		content, input, renew string
-		want                  string
+		content, input, upload, renew string
+		want                          string
 	}{
-		"content without a slash": {"content", "input/", "1h", "content_prefix"},
-		"input a bare slash":      {"content/", "/", "1h", "input_prefix"},
-		"same prefix":             {"blobs/", "blobs/", "1h", "overlap"},
-		"input under content":     {"blobs/", "blobs/input/", "1h", "overlap"},
-		"negative renew age":      {"content/", "input/", "-1h", "renew_age"},
-		"renew age not a period":  {"content/", "input/", "weekly", "BUNREI_OBJECTS_RENEW_AGE"},
+		"content without a slash": {"content", "input/", "upload/", "1h", "content_prefix"},
+		"input a bare slash":      {"content/", "/", "upload/", "1h", "input_prefix"},
+		"upload without a slash":  {"content/", "input/", "upload", "1h", "upload_prefix"},
+		"same prefix":             {"blobs/", "blobs/", "upload/", "1h", "overlap"},
+		"input under content":     {"blobs/", "blobs/input/", "upload/", "1h", "overlap"},
+		"upload under input":      {"content/", "input/", "input/upload/", "1h", "overlap"},
+		"content under upload":    {"upload/content/", "input/", "upload/", "1h", "overlap"},
+		"negative renew age":      {"content/", "input/", "upload/", "-1h", "renew_age"},
+		"renew age not a period":  {"content/", "input/", "upload/", "weekly", "BUNREI_OBJECTS_RENEW_AGE"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("BUNREI_OBJECTS_CONTENT_PREFIX", tc.content)
 			t.Setenv("BUNREI_OBJECTS_INPUT_PREFIX", tc.input)
+			t.Setenv("BUNREI_OBJECTS_UPLOAD_PREFIX", tc.upload)
 			t.Setenv("BUNREI_OBJECTS_RENEW_AGE", tc.renew)
 
 			cfg := configtest.Minimal()
@@ -597,6 +603,77 @@ func TestSweep_FinalizeRejectsInvalidPolicy(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), "sweep:") || !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("error = %v, want the sweep block wrap naming %s", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestUploads_FinalizeDefaults(t *testing.T) {
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize(""); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	u := cfg.Uploads
+	if got := u.Lifetime.Duration(); got != 24*time.Hour {
+		t.Errorf("Uploads.Lifetime = %s, want 24h", got)
+	}
+	if got := u.ObjectAge(); got != 48*time.Hour {
+		t.Errorf("Uploads.ObjectAge() = %s, want 48h, twice the lifetime", got)
+	}
+	if u.Env != (config.UploadsEnv{}) {
+		t.Errorf("Uploads.Env = %+v, want empty under the empty prefix", u.Env)
+	}
+}
+
+func TestUploads_MergeOverlaysSetFields(t *testing.T) {
+	base := &config.Config{}
+	base.Uploads.Lifetime = new(libconfig.Duration(time.Hour))
+
+	base.Merge(&config.Config{})
+	if got := base.Uploads.Lifetime.Duration(); got != time.Hour {
+		t.Errorf("Uploads.Lifetime = %s, want the base's 1h under an empty overlay", got)
+	}
+
+	overlay := &config.Config{}
+	overlay.Uploads.Lifetime = new(libconfig.Duration(2 * time.Hour))
+	base.Merge(overlay)
+	if got := base.Uploads.Lifetime.Duration(); got != 2*time.Hour {
+		t.Errorf("Uploads.Lifetime = %s, want the overlay's 2h", got)
+	}
+}
+
+func TestUploads_FinalizeEnvOverrides(t *testing.T) {
+	t.Setenv("BUNREI_UPLOADS_LIFETIME", "6h")
+
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize("bunrei"); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	if got := cfg.Uploads.Lifetime.Duration(); got != 6*time.Hour {
+		t.Errorf("Uploads.Lifetime = %s, want 6h from BUNREI_UPLOADS_LIFETIME", got)
+	}
+	if got := cfg.Uploads.Env.Lifetime; got != "BUNREI_UPLOADS_LIFETIME" {
+		t.Errorf("Uploads.Env.Lifetime = %q, want BUNREI_UPLOADS_LIFETIME", got)
+	}
+}
+
+func TestUploads_FinalizeRejectsInvalidLifetime(t *testing.T) {
+	for value, want := range map[string]string{
+		"0s":    "lifetime",
+		"-1h":   "lifetime",
+		"daily": "BUNREI_UPLOADS_LIFETIME",
+	} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("BUNREI_UPLOADS_LIFETIME", value)
+
+			err := configtest.Minimal().Finalize("bunrei")
+			if err == nil {
+				t.Fatal("Finalize accepted an invalid upload lifetime")
+			}
+			if !strings.Contains(err.Error(), "uploads:") || !strings.Contains(err.Error(), want) {
+				t.Errorf("error = %v, want the uploads block wrap naming %s", err, want)
 			}
 		})
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/standards-lab/sqlate"
 
 	"github.com/JaimeStill/capstone-bunrei/domain/jobs"
+	"github.com/JaimeStill/capstone-bunrei/domain/uploads"
 	"github.com/JaimeStill/capstone-bunrei/internal/config"
 )
 
@@ -64,17 +65,22 @@ type Nodes struct {
 	// is current before the service takes a request.
 	Schema *graph.Node[*admin.Service]
 
-	// Domain (domain.go): the job root over the job journal, ordered after
-	// the schema as every domain node is. It mounts no routes, so it is one
-	// of [App.Roots] until a route or reactor Uses it.
-	Jobs *graph.Node[*jobs.Service]
+	// Domain (domain.go): the job root over the job journal, and the
+	// uploads store over the sql and the storage, each ordered after the
+	// schema as every domain node is. Neither mounts routes: the job root
+	// is one of [App.Roots] until a route or reactor Uses it, and the
+	// sweeper Uses the uploads store for its reclaimer.
+	Jobs    *graph.Node[*jobs.Service]
+	Uploads *graph.Node[*uploads.Service]
 
 	// Reactors (reactors.go): the group each reactor joins with graph.In.
 	// A reactor is reached by no Use, so the group is one of [App.Roots],
 	// and the server orders itself after it so it stays the top layer.
 	// Sweeper is go-database's sweeper over the service's reclaimers:
 	// docproc's index retention, go-messaging's outbox and inbox
-	// retention, and the expiry of the content and input prefixes. It
+	// retention, the expiry of the content and input prefixes, the uploads
+	// store's reclaimer of expired uploads, and the expiry of the upload
+	// prefix. It
 	// orders itself after the schema, so its passes find the tables the
 	// migrations create.
 	Reactors *graph.Group

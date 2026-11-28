@@ -54,11 +54,15 @@
   "objects": {
     "content_prefix": "content/",
     "input_prefix": "input/",
+    "upload_prefix": "upload/",
     "renew_age": "168h"
   },
   "reads": {
     "default_size": 20,
     "max_size": 100
+  },
+  "uploads": {
+    "lifetime": "24h"
   },
   "sweep": {
     "interval": "30s",

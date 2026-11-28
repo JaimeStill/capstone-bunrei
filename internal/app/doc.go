@@ -99,8 +99,9 @@
 // group, with its service and the logger for its error writer read with
 // Use. The schema is go-database's admin.Service over the database: its
 // Start applies, bottom-first, docproc's index set, docinfer's cache set,
-// and go-messaging's outbox and inbox set, and its Ready joins the
-// readiness probe beside the database's. It is one of [App.Roots] until a
+// go-messaging's outbox and inbox set, and Bunrei's own set from the
+// schema package, and its Ready joins the readiness probe beside the
+// database's. It is one of [App.Roots] until a
 // domain node Uses it, and the server orders itself after it, so the schema
 // is current before the first request. It mounts no routes yet, and the
 // /admin group ships empty. In production the admin mount belongs on its
@@ -118,7 +119,10 @@
 // itself after the work queue and the schema too, so the domain layer
 // starts after all of its infrastructure and after the migrations; every
 // domain node orders itself after the schema. It mounts no routes, so it is one of
-// [App.Roots] until a route or reactor Uses it. A package that does own a
+// [App.Roots] until a route or reactor Uses it. The uploads node is
+// domain/uploads's Service, go-web-sdk's upload.Store over the sql and
+// the storage, its chunks under the objects block's upload prefix; it
+// mounts no routes yet, and the sweeper Uses it for its reclaimer. A package that does own a
 // resource and run belongs in the infrastructure layer, if it is built once
 // at startup, or the reactors layer, if it reacts to an external occurrence
 // for the life of the process. Each domain layer's route group mounts into
@@ -146,15 +150,18 @@
 // failure.
 //
 // The sweeper is the service's one reactor: go-database's sweep.Sweeper,
-// its interval and pass budget from the sweep block, over five
+// its interval and pass budget from the sweep block, over seven
 // reclaimers, each under its own advisory lock: index, docproc's index
 // retention at the block's index_age; outbox and inbox, go-messaging's
 // retention of the published outbox rows and the handled inbox rows at
-// outbox_age and inbox_age; and content and input, an expiry.Reclaimer
-// over the storage for each of the objects block's prefixes, at
-// content_age and input_age. It Uses the sql and the storage and orders
-// itself after the schema, so its first pass finds the migrated tables
-// and a started store.
+// outbox_age and inbox_age; content and input, an expiry.Reclaimer over
+// the storage for each of the objects block's content and input
+// prefixes, at content_age and input_age; uploads, the uploads node's
+// reclaimer of the expired uploads' rows; and upload objects, an
+// expiry.Reclaimer over the upload prefix at twice the uploads block's
+// lifetime. It Uses the sql, the storage, and the uploads node and
+// orders itself after the schema, so its first pass finds the migrated
+// tables and a started store.
 //
 // The request edge's readiness is a fresh node, so each Build's starts
 // unbound, ready for the Coordinator that Build's System is handed to. The

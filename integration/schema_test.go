@@ -9,7 +9,7 @@ import (
 	"github.com/JaimeStill/capstone-bunrei/integration"
 )
 
-func TestSchema_StartupAppliesTheLibrarySets(t *testing.T) {
+func TestSchema_StartupAppliesTheLibraryAndBunreiSets(t *testing.T) {
 	s := integration.Start(t, integration.Options{})
 	assertReady(t, s.Client())
 
@@ -18,6 +18,7 @@ func TestSchema_StartupAppliesTheLibrarySets(t *testing.T) {
 		"docproc_schema_version", "docproc_entry", "docproc_item",
 		"docinfer_schema_version", "docinfer_cache",
 		"messaging_schema_version", "messaging_outbox", "messaging_inbox",
+		"schema_version", "upload", "upload_chunk",
 	}
 	for _, table := range tables {
 		var exists bool

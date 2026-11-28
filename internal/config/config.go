@@ -17,8 +17,8 @@ const envPrefix = "bunrei"
 // Config is the service's root configuration: the library capability blocks
 // (the log, the server, the database connection, the storage connection, the
 // BUNREI_JOBS stream's NATS broker, and the BUNREI_WORK stream's NATS work
-// queue) plus the service-owned read policy, object layout, and sweep
-// policy. It embeds the lifecycle Coordinator's configuration by value and
+// queue) plus the service-owned read policy, object layout, upload policy,
+// and sweep policy. It embeds the lifecycle Coordinator's configuration by value and
 // untagged, so its shutdown_timeout is a top-level key and ShutdownTimeout
 // a promoted field; Config.Config is that lifecycle block, the one the
 // composition root hands the Coordinator.
@@ -33,6 +33,7 @@ type Config struct {
 	NATSQueue nats.QueueConfig `json:"nats_queue"`
 	Objects   ObjectsConfig    `json:"objects"`
 	Reads     ReadsConfig      `json:"reads"`
+	Uploads   UploadsConfig    `json:"uploads"`
 	Sweep     SweepConfig      `json:"sweep"`
 }
 
@@ -51,6 +52,7 @@ func (c *Config) Merge(src *Config) {
 	c.NATSQueue.Merge(&src.NATSQueue)
 	c.Objects.Merge(&src.Objects)
 	c.Reads.Merge(&src.Reads)
+	c.Uploads.Merge(&src.Uploads)
 	c.Sweep.Merge(&src.Sweep)
 }
 
@@ -94,6 +96,9 @@ func (c *Config) Finalize(envPrefix string) error {
 	}
 	if err := c.Reads.Finalize(envPrefix); err != nil {
 		return fmt.Errorf("reads: %w", err)
+	}
+	if err := c.Uploads.Finalize(envPrefix); err != nil {
+		return fmt.Errorf("uploads: %w", err)
 	}
 	if err := c.Sweep.Finalize(envPrefix); err != nil {
 		return fmt.Errorf("sweep: %w", err)

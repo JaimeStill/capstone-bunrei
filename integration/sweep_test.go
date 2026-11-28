@@ -80,3 +80,57 @@ func TestSweep_ExpiresAnAgedObjectAndKeepsAFreshOne(t *testing.T) {
 		t.Errorf("Stat %s = %v, want the fresh object kept", fresh, err)
 	}
 }
+
+func TestSweep_ReclaimsAnExpiredUploadAndItsAgedObjects(t *testing.T) {
+	run := fmt.Sprintf("sweep-%d", time.Now().UnixNano())
+	prefix := run + "/upload/"
+	expired, fresh := run+"-expired", run+"-open"
+	t.Setenv("BUNREI_OBJECTS_UPLOAD_PREFIX", prefix)
+	t.Setenv("BUNREI_UPLOADS_LIFETIME", "2s")
+	t.Setenv("BUNREI_SWEEP_INTERVAL", "500ms")
+	a := integration.Compose(t)
+	n := a.Nodes()
+	sys, err := a.Graph().Build(n.Schema, n.Sweeper)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	start(t, "database", sys.Get(n.Database))
+	start(t, "storage", sys.Get(n.Storage))
+	start(t, "schema", sys.Get(n.Schema))
+
+	ctx := context.Background()
+	store := sys.Get(n.Uploads)
+	objects := sys.Get(n.Storage)
+	db := integration.Database(t)
+	open := func(id string, lifetime time.Duration) {
+		if err := store.Create(ctx, id, "application/pdf", uploadDigest, "f.pdf", -1, time.Now().Add(lifetime)); err != nil {
+			t.Fatalf("Create %s: %v", id, err)
+		}
+		if _, ok, err := store.Append(ctx, id, 0, []byte("abc"), nil); err != nil || !ok {
+			t.Fatalf("Append to %s = %v, %v", id, ok, err)
+		}
+	}
+	open(expired, time.Second)
+	time.Sleep(4500 * time.Millisecond)
+	open(fresh, time.Hour)
+
+	sweeper := sys.Get(n.Sweeper)
+	start(t, "sweeper", sweeper)
+	processtest.WaitFor(t, "the expired upload's reclaim", func() bool {
+		return uploadRows(t, db, "upload", "id", expired) == 0 &&
+			uploadRows(t, db, "upload_chunk", "upload_id", expired) == 0 &&
+			len(objectsUnder(t, objects, prefix+expired+"/")) == 0
+	})
+	shutdown, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := sweeper.Shutdown(shutdown); err != nil {
+		t.Fatalf("Shutdown the sweeper: %v", err)
+	}
+
+	if got := uploadRows(t, db, "upload_chunk", "upload_id", fresh); got != 1 {
+		t.Errorf("the open upload's chunk rows = %d, want its one kept", got)
+	}
+	if got := objectsUnder(t, objects, prefix+fresh+"/"); len(got) != 1 {
+		t.Errorf("the fresh upload's objects = %v, want its one kept, younger than twice the lifetime", got)
+	}
+}

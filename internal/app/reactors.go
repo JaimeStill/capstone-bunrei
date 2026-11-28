@@ -42,6 +42,10 @@ func (n *Nodes) newSweeper(s *graph.Scope) (*sweep.Sweeper, error) {
 	if err != nil {
 		return nil, err
 	}
+	uploadObjects, err := expiry.New(store, *cfg.Objects.UploadPrefix, cfg.Uploads.ObjectAge(), expiry.Options{})
+	if err != nil {
+		return nil, err
+	}
 
 	policy := sweep.Policy{Interval: ages.Interval.Duration(), Budget: *ages.Batch}
 	regs := []sweep.Registration{
@@ -50,6 +54,8 @@ func (n *Nodes) newSweeper(s *graph.Scope) (*sweep.Sweeper, error) {
 		{Name: "inbox", Reclaimer: inbox, Policy: policy},
 		{Name: "content", Reclaimer: content, Policy: policy},
 		{Name: "input", Reclaimer: input, Policy: policy},
+		{Name: "uploads", Reclaimer: s.Use(n.Uploads).Reclaimer(), Policy: policy},
+		{Name: "upload objects", Reclaimer: uploadObjects, Policy: policy},
 	}
 	return sweep.New(db, regs, cfg.ShutdownTimeout.Duration(), s.Use(n.Logger), sweep.Options{})
 }
