@@ -217,6 +217,7 @@ func TestProblems_TypesArePrefixedNames(t *testing.T) {
 	for _, typ := range []string{
 		client.ProblemInvalidRequest, client.ProblemContentTooLarge,
 		client.ProblemExtractionTooLarge, client.ProblemSubmitConflict,
+		client.ProblemJobNotFound, client.ProblemJobEnded, client.ProblemOutputNotFound,
 	} {
 		name, ok := strings.CutPrefix(typ, "urn:standards-lab:bunrei:problem:")
 		if !ok || name == "" || strings.ContainsAny(name, ": ") {

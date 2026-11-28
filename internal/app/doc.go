@@ -28,8 +28,8 @@
 // and cannot fail. [App.Graph] and [App.Nodes] publish the graph and its
 // handles, so a caller can Observe or Replace a node before Run. [App.Run]
 // is the hot start plus shutdown: it runs a go-web-sdk web.Service, which
-// builds [App.Roots], the server, the reactors group, the schema, and the
-// content store, plus the lifecycle config node, hands the System to go-core's lifecycle
+// builds [App.Roots], the server, the reactors group, and the schema, plus
+// the lifecycle config node, hands the System to go-core's lifecycle
 // Coordinator, and returns the process exit code. A constructor's error
 // fails the Build, and Run writes "service failed: " and the error, which
 // names the failing node, to the stderr it is given; a wiring mistake
@@ -73,8 +73,8 @@
 // age: docproc's content store, and the store of each job's staged input by
 // its declared SHA-256. The content and the input own nothing and never
 // run, so neither is a lifecycle participant; the submissions node Uses the
-// input, and the content is one of [App.Roots] until a domain node Uses
-// it, so both are built, and a wiring mistake in either fails at startup. The job journal is go-messaging's NATS broker
+// input, and the outputs node the content, so both are built, and a wiring
+// mistake in either fails at startup. The job journal is go-messaging's NATS broker
 // over the nats block, the owner of the BUNREI_JOBS stream, which captures
 // the block's prefix, bunrei.job.> by default, and holds each job's events
 // on its subject, the prefix, a dot, and the job's ID; the work queue is go-messaging's NATS work queue over
@@ -117,15 +117,18 @@
 // handed the nats block's prefix as the prefix of its subjects. It orders
 // itself after the work queue and the schema too, so the domain layer
 // starts after all of its infrastructure and after the migrations; every
-// domain node orders itself after the schema. It mounts no routes; the
-// submissions node Uses it. The uploads node is domain/uploads's Service,
+// domain node orders itself after the schema. The submissions node Uses
+// it. The uploads node is domain/uploads's Service,
 // go-web-sdk's upload.Store over the sql and the storage, its chunks under
 // the objects block's upload prefix; it mounts no routes yet, and the
 // sweeper Uses it for its reclaimer. The submissions node is
 // domain/submissions's Service, Submit, over the sql, the input, the job
 // root, and the work queue, handed the submissions block's small-document
 // limit and retention; it mounts /api/jobs, and the sweeper Uses it for
-// its reclaimer. A package that does own a
+// its reclaimer. The jobs node mounts /api/jobs/{id}, GetJob, and
+// /api/jobs/{id}/cancel, CancelJob. The outputs node is domain/outputs's
+// Service, GetOutput, over the content; it mounts /api/outputs/{sha256}.
+// A package that does own a
 // resource and run belongs in the infrastructure layer, if it is built once
 // at startup, or the reactors layer, if it reacts to an external occurrence
 // for the life of the process. Each domain layer's route group mounts into

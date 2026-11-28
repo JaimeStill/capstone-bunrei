@@ -24,8 +24,8 @@
 //   - [Failed]: failed's, the attempt and its error.
 //
 // A refusal is an RFC 9457 problem whose type is [ProblemPrefix] followed by its name:
-// [ProblemInvalidRequest], [ProblemContentTooLarge], [ProblemExtractionTooLarge], and
-// [ProblemSubmitConflict].
+// [ProblemInvalidRequest], [ProblemContentTooLarge], [ProblemExtractionTooLarge],
+// [ProblemSubmitConflict], [ProblemJobNotFound], [ProblemJobEnded], and [ProblemOutputNotFound].
 //
 // Each type's JSON is its wire shape, with snake_case member names, at the wire version
 // [Version].

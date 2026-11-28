@@ -17,6 +17,7 @@ import (
 	"github.com/standards-lab/sqlate"
 
 	"github.com/JaimeStill/capstone-bunrei/domain/jobs"
+	"github.com/JaimeStill/capstone-bunrei/domain/outputs"
 	"github.com/JaimeStill/capstone-bunrei/domain/submissions"
 	"github.com/JaimeStill/capstone-bunrei/domain/uploads"
 	"github.com/JaimeStill/capstone-bunrei/internal/config"
@@ -46,9 +47,7 @@ type Nodes struct {
 	// Infrastructure (infrastructure.go). SQL is the sqlate session over
 	// the database's pool, which the schema, the domain stores, and the
 	// sweeper share. Content is docproc's content store and Input the store
-	// of each job's staged input, both over the storage node; the content
-	// store is one of [App.Roots] until a domain node Uses it, so a wiring
-	// mistake in it fails the Build. JobJournal is the NATS broker that owns
+	// of each job's staged input, both over the storage node. JobJournal is the NATS broker that owns
 	// the BUNREI_JOBS stream, and WorkQueue the NATS work queue that owns
 	// the BUNREI_WORK stream.
 	LifecycleConfig *graph.Node[lifecycle.Config]
@@ -67,13 +66,15 @@ type Nodes struct {
 	Schema *graph.Node[*admin.Service]
 
 	// Domain (domain.go): the job root over the job journal; the uploads
-	// store over the sql and the storage; and Submit over the sql, the
-	// input, the job root, and the work queue, each ordered after the
-	// schema as every domain node is. Submit mounts its routes, and the
-	// sweeper Uses the uploads store and Submit for their reclaimers.
+	// store over the sql and the storage; Submit over the sql, the input,
+	// the job root, and the work queue; and GetOutput over the content,
+	// each ordered after the schema as every domain node is. Submit, the
+	// job root, and GetOutput mount their routes, and the sweeper Uses the
+	// uploads store and Submit for their reclaimers.
 	Jobs        *graph.Node[*jobs.Service]
 	Uploads     *graph.Node[*uploads.Service]
 	Submissions *graph.Node[*submissions.Service]
+	Outputs     *graph.Node[*outputs.Service]
 
 	// Reactors (reactors.go): the group each reactor joins with graph.In.
 	// A reactor is reached by no Use, so the group is one of [App.Roots],
@@ -126,13 +127,12 @@ func (a *App) Nodes() Nodes { return a.nodes }
 // service starts from: the server, which reaches the router, the readiness,
 // the logger, the writer node, the config node, and through the routes the
 // domain nodes and the infrastructure they Use; the reactors group, whose
-// members no Use reaches; the schema, which reaches the database; and the
-// content store, which reaches the storage.
+// members no Use reaches; and the schema, which reaches the database.
 // [App.Run] builds this set plus the lifecycle config node the Coordinator
 // is configured from.
 func (a *App) Roots() []graph.Ref {
 	n := a.nodes
-	return []graph.Ref{n.Server, n.Reactors, n.Schema, n.Content}
+	return []graph.Ref{n.Server, n.Reactors, n.Schema}
 }
 
 // Run runs the service as a web.Service over [App.Roots] until ctx ends,

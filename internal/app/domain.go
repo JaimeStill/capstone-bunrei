@@ -5,6 +5,7 @@ import (
 	"github.com/standards-lab/go-web-sdk"
 
 	"github.com/JaimeStill/capstone-bunrei/domain/jobs"
+	"github.com/JaimeStill/capstone-bunrei/domain/outputs"
 	"github.com/JaimeStill/capstone-bunrei/domain/submissions"
 	"github.com/JaimeStill/capstone-bunrei/domain/uploads"
 )
@@ -13,6 +14,7 @@ func defineDomain(g *graph.Graph, n *Nodes) {
 	n.Jobs = g.Define("jobs", n.newJobs, graph.After(n.WorkQueue, n.Schema))
 	n.Uploads = g.Define("uploads", n.newUploads, graph.After(n.Schema))
 	n.Submissions = g.Define("submissions", n.newSubmissions, graph.After(n.Schema))
+	n.Outputs = g.Define("outputs", n.newOutputs, graph.After(n.Schema))
 }
 
 func (n *Nodes) newJobs(s *graph.Scope) (*jobs.Service, error) {
@@ -31,9 +33,15 @@ func (n *Nodes) newSubmissions(s *graph.Scope) (*submissions.Service, error) {
 		*policy.DocumentLimit, policy.Retention.Duration()), nil
 }
 
+func (n *Nodes) newOutputs(s *graph.Scope) (*outputs.Service, error) {
+	return outputs.New(s.Use(n.Content)), nil
+}
+
 func mountAPI(s *graph.Scope, n *Nodes) *web.Group {
 	cfg, logger := s.Use(n.Config), s.Use(n.Logger)
 	api := web.NewGroup("/api")
 	api.Mount(submissions.Routes(s.Use(n.Submissions), cfg.Server.Transfer, logger))
+	api.Mount(jobs.Routes(s.Use(n.Jobs), logger))
+	api.Mount(outputs.Routes(s.Use(n.Outputs), logger))
 	return api
 }
