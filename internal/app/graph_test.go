@@ -164,7 +164,7 @@ func TestGraph_ReadinessChecks(t *testing.T) {
 	for _, c := range lifecycle.New(sys, cfg.Config).Checks() {
 		got = append(got, c.Name)
 	}
-	want := []string{"database", "schema"}
+	want := []string{"database", "storage", "schema"}
 	if !slices.Equal(got, want) {
 		t.Errorf("checks = %v, want %v", got, want)
 	}

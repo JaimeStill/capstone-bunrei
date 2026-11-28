@@ -1,6 +1,7 @@
 package configtest
 
 import (
+	"fmt"
 	"net"
 	"testing"
 
@@ -15,13 +16,15 @@ import (
 func Minimal() *config.Config {
 	cfg := &config.Config{}
 	cfg.Database.Name = "app"
+	cfg.Storage.Container = "bunrei"
 	return cfg
 }
 
 // Config returns a finalized Config whose composition performs no I/O: the
 // server on a loopback ephemeral port, debug logging so requests leave
-// records, and the database aimed at a closed loopback port, so its
-// connection is refused immediately instead of timing out. The empty
+// records, and the database and the object store each aimed at a closed
+// loopback port, so each connection is refused immediately instead of
+// timing out, and the store tries once rather than retrying. The empty
 // prefix disables environment overrides.
 func Config(t *testing.T) *config.Config {
 	t.Helper()
@@ -33,6 +36,10 @@ func Config(t *testing.T) *config.Config {
 	cfg.Database.User = "app"
 	port := ClosedPort(t)
 	cfg.Database.Port = &port
+	cfg.Storage.Endpoint = fmt.Sprintf("http://127.0.0.1:%d", ClosedPort(t))
+	cfg.Storage.Account = "admin"
+	cfg.Storage.Key = "secret"
+	cfg.Storage.Options = map[string]string{"max_retries": "0"}
 	if err := cfg.Finalize(""); err != nil {
 		t.Fatalf("finalize hermetic config: %v", err)
 	}

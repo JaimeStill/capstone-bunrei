@@ -4,8 +4,9 @@
 // the layer files are the architecture's layer list:
 //
 //   - infrastructure.go: defineInfrastructure, the lifecycle configuration
-//     and the services the application is composed on: the logger and the
-//     PostgreSQL pool;
+//     and the services the application is composed on: the logger, the
+//     PostgreSQL pool, the object store, and the content and input stores
+//     over it;
 //   - admin.go: defineAdmin, the administrative services, and their /admin
 //     mount;
 //   - domain.go: defineDomain, the domain services, and their /api mount;
@@ -27,7 +28,8 @@
 // and cannot fail. [App.Graph] and [App.Nodes] publish the graph and its
 // handles, so a caller can Observe or Replace a node before Run. [App.Run]
 // is the hot start plus shutdown: it runs a go-web-sdk web.Service, which
-// builds [App.Roots], the server and the reactors group, plus the lifecycle
+// builds [App.Roots], the server, the reactors group, the schema, and the
+// content and input stores, plus the lifecycle
 // config node, hands the System to go-core's lifecycle Coordinator, and
 // returns the process exit code. A constructor's error fails the Build,
 // and Run writes "service failed: " and the error, which names the failing
@@ -61,9 +63,19 @@
 // The infrastructure layer holds the lifecycle config the Coordinator is
 // configured from and the services the application is composed on, read
 // from the config node: the logger, written to the writer node, and the
-// database, go-database's PostgreSQL pool over the database block; storage
-// or an auth client joins as the service grows, each its own node, with any
-// order it needs declared on its Define line. A service whose value implements lifecycle.Subsystem takes part in
+// database, go-database's PostgreSQL pool over the database block; the
+// storage, go-storage's Store over its s3 provider and the storage block,
+// whose Start ensures the bucket, which the stack never creates, and whose
+// Ready joins the readiness probe; and, over the storage, the content and
+// the input, each a docproc/storage Content under its prefix from the
+// objects block with the block's renew age: docproc's content store, and
+// the store of each job's staged input by its declared SHA-256. The content
+// and the input own nothing and never run, so neither is a lifecycle
+// participant; each is one of [App.Roots] until a domain node Uses it, so
+// both are built, and a wiring mistake in either fails at startup. An auth
+// client joins as the service grows, its own node, with any order it needs
+// declared on its Define line. A service whose value implements
+// lifecycle.Subsystem takes part in
 // startup and shutdown through its own methods, and its constructor opens
 // nothing: connectivity belongs to its Start, so a failed Build leaks no
 // connections.

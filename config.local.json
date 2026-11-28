@@ -8,5 +8,9 @@
   "database": {
     "host": "127.0.0.1",
     "port": 5443
+  },
+  "storage": {
+    "endpoint": "http://127.0.0.1:8338",
+    "account": "admin"
   }
 }

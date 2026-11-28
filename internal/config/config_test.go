@@ -296,3 +296,132 @@ func TestDatabase_FinalizeRequiresName(t *testing.T) {
 		t.Errorf("error = %v, want the database block wrap", err)
 	}
 }
+
+func TestStorage_FinalizeEnvOverrides(t *testing.T) {
+	t.Setenv("BUNREI_STORAGE_ENDPOINT", "http://127.0.0.1:8338")
+	t.Setenv("BUNREI_STORAGE_CONTAINER", "jobs")
+	t.Setenv("BUNREI_STORAGE_ACCOUNT", "admin")
+	t.Setenv("BUNREI_STORAGE_KEY", "secret")
+	t.Setenv("BUNREI_STORAGE_OPTIONS_REGION", "eu-west-1")
+
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize("bunrei"); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	st := cfg.Storage
+	if st.Endpoint != "http://127.0.0.1:8338" || st.Container != "jobs" {
+		t.Errorf("Storage = %s/%s, want http://127.0.0.1:8338/jobs", st.Endpoint, st.Container)
+	}
+	if st.Account != "admin" || st.Key != "secret" {
+		t.Errorf("Storage credential = %s/%s, want admin/secret", st.Account, st.Key)
+	}
+	if st.Options["region"] != "eu-west-1" {
+		t.Errorf("Storage.Options = %v, want region eu-west-1", st.Options)
+	}
+	if st.Env.Key != "BUNREI_STORAGE_KEY" {
+		t.Errorf("Storage.Env.Key = %q, want BUNREI_STORAGE_KEY", st.Env.Key)
+	}
+}
+
+func TestStorage_FinalizeRequiresContainer(t *testing.T) {
+	cfg := configtest.Minimal()
+	cfg.Storage.Container = ""
+	err := cfg.Finalize("")
+	if err == nil {
+		t.Fatal("Finalize accepted a storage block without a container")
+	}
+	if !strings.Contains(err.Error(), "storage:") || !strings.Contains(err.Error(), "container") {
+		t.Errorf("error = %v, want the storage block wrap naming the container", err)
+	}
+}
+
+func TestObjects_FinalizeDefaults(t *testing.T) {
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize(""); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	o := cfg.Objects
+	if *o.ContentPrefix != "content/" || *o.InputPrefix != "input/" {
+		t.Errorf("Objects prefixes = %q, %q, want content/ and input/", *o.ContentPrefix, *o.InputPrefix)
+	}
+	if got := o.RenewAge.Duration(); got != 7*24*time.Hour {
+		t.Errorf("Objects.RenewAge = %s, want 168h", got)
+	}
+	if o.Env != (config.ObjectsEnv{}) {
+		t.Errorf("Objects.Env = %+v, want empty under the empty prefix", o.Env)
+	}
+}
+
+func TestObjects_MergeOverlaysSetFields(t *testing.T) {
+	base := &config.Config{}
+	base.Objects.ContentPrefix = new("content/")
+	base.Objects.RenewAge = new(libconfig.Duration(time.Hour))
+
+	overlay := &config.Config{}
+	overlay.Objects.RenewAge = new(libconfig.Duration(2 * time.Hour))
+
+	base.Merge(overlay)
+
+	if got := base.Objects.RenewAge.Duration(); got != 2*time.Hour {
+		t.Errorf("Objects.RenewAge = %s, want the overlay's 2h", got)
+	}
+	if got := *base.Objects.ContentPrefix; got != "content/" {
+		t.Errorf("Objects.ContentPrefix = %q, want the base's content/", got)
+	}
+}
+
+func TestObjects_FinalizeEnvOverrides(t *testing.T) {
+	t.Setenv("BUNREI_OBJECTS_CONTENT_PREFIX", "c/")
+	t.Setenv("BUNREI_OBJECTS_INPUT_PREFIX", "i/")
+	t.Setenv("BUNREI_OBJECTS_RENEW_AGE", "24h")
+
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize("bunrei"); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	o := cfg.Objects
+	if *o.ContentPrefix != "c/" || *o.InputPrefix != "i/" || o.RenewAge.Duration() != 24*time.Hour {
+		t.Errorf("Objects = %q, %q, %s, want c/, i/, 24h", *o.ContentPrefix, *o.InputPrefix, o.RenewAge)
+	}
+	want := config.ObjectsEnv{
+		ContentPrefix: "BUNREI_OBJECTS_CONTENT_PREFIX",
+		InputPrefix:   "BUNREI_OBJECTS_INPUT_PREFIX",
+		RenewAge:      "BUNREI_OBJECTS_RENEW_AGE",
+	}
+	if o.Env != want {
+		t.Errorf("Objects.Env = %+v, want %+v", o.Env, want)
+	}
+}
+
+func TestObjects_FinalizeRejectsInvalidLayout(t *testing.T) {
+	cases := map[string]struct {
+		content, input, renew string
+		want                  string
+	}{
+		"content without a slash": {"content", "input/", "1h", "content_prefix"},
+		"input a bare slash":      {"content/", "/", "1h", "input_prefix"},
+		"same prefix":             {"blobs/", "blobs/", "1h", "overlap"},
+		"input under content":     {"blobs/", "blobs/input/", "1h", "overlap"},
+		"negative renew age":      {"content/", "input/", "-1h", "renew_age"},
+		"renew age not a period":  {"content/", "input/", "weekly", "BUNREI_OBJECTS_RENEW_AGE"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("BUNREI_OBJECTS_CONTENT_PREFIX", tc.content)
+			t.Setenv("BUNREI_OBJECTS_INPUT_PREFIX", tc.input)
+			t.Setenv("BUNREI_OBJECTS_RENEW_AGE", tc.renew)
+
+			cfg := configtest.Minimal()
+			err := cfg.Finalize("bunrei")
+			if err == nil {
+				t.Fatal("Finalize accepted an invalid object layout")
+			}
+			if !strings.Contains(err.Error(), "objects:") || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %v, want the objects block wrap naming %s", err, tc.want)
+			}
+		})
+	}
+}

@@ -5,10 +5,12 @@ import (
 	"io"
 	"log/slog"
 
+	docstorage "github.com/standards-lab/docproc/storage"
 	"github.com/standards-lab/go-core/graph"
 	"github.com/standards-lab/go-core/lifecycle"
 	"github.com/standards-lab/go-database"
 	"github.com/standards-lab/go-database/admin"
+	"github.com/standards-lab/go-storage"
 	"github.com/standards-lab/go-web-sdk"
 
 	"github.com/JaimeStill/capstone-bunrei/internal/config"
@@ -35,10 +37,16 @@ type Nodes struct {
 	Config *graph.Node[*config.Config]
 	Writer *graph.Node[io.Writer]
 
-	// Infrastructure (infrastructure.go).
+	// Infrastructure (infrastructure.go). Content is docproc's content
+	// store and Input the store of each job's staged input, both over the
+	// storage node; each is one of [App.Roots] until a domain node Uses
+	// it, so a wiring mistake in either fails the Build.
 	LifecycleConfig *graph.Node[lifecycle.Config]
 	Logger          *graph.Node[*slog.Logger]
 	Database        *graph.Node[*database.DB]
+	Storage         *graph.Node[*storage.Store]
+	Content         *graph.Node[*docstorage.Content]
+	Input           *graph.Node[*docstorage.Content]
 
 	// Admin (admin.go): the schema is one of [App.Roots] until a domain
 	// node Uses it, and the server orders itself after it, so the schema
@@ -87,13 +95,14 @@ func (a *App) Nodes() Nodes { return a.nodes }
 // Roots returns the service's root set, the nodes a Build of the whole
 // service starts from: the server, which reaches the router, the
 // readiness, the logger, the writer node, and the config node through its
-// Uses and theirs; the reactors group, whose members no Use reaches; and
-// the schema, which reaches the database.
+// Uses and theirs; the reactors group, whose members no Use reaches; the
+// schema, which reaches the database; and the content and input stores,
+// which reach the storage.
 // [App.Run] builds this set plus the lifecycle config node the Coordinator
 // is configured from.
 func (a *App) Roots() []graph.Ref {
 	n := a.nodes
-	return []graph.Ref{n.Server, n.Reactors, n.Schema}
+	return []graph.Ref{n.Server, n.Reactors, n.Schema, n.Content, n.Input}
 }
 
 // Run runs the service as a web.Service over [App.Roots] until ctx ends,

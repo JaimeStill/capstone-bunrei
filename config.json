@@ -26,6 +26,21 @@
       "sslmode": "disable"
     }
   },
+  "storage": {
+    "endpoint": "http://127.0.0.1:8333",
+    "container": "bunrei",
+    "request_timeout": "5s",
+    "read_idle_timeout": "30s",
+    "options": {
+      "region": "us-east-1",
+      "try_timeout": "10s"
+    }
+  },
+  "objects": {
+    "content_prefix": "content/",
+    "input_prefix": "input/",
+    "renew_age": "168h"
+  },
   "reads": {
     "default_size": 20,
     "max_size": 100

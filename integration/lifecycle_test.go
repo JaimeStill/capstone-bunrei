@@ -31,6 +31,7 @@ type readiness struct {
 var readyChecks = []check{
 	{Name: "lifecycle", Ready: true},
 	{Name: "database", Ready: true},
+	{Name: "storage", Ready: true},
 	{Name: "schema", Ready: true},
 }
 

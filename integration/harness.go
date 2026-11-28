@@ -3,21 +3,29 @@ package integration
 import (
 	"context"
 	"database/sql"
+	"io"
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/standards-lab/go-core/process/processtest"
 	"github.com/standards-lab/go-database"
 	"github.com/standards-lab/go-database/postgres"
 	"github.com/standards-lab/go-web-sdk/webtest"
+
+	"github.com/JaimeStill/capstone-bunrei/internal/app"
+	"github.com/JaimeStill/capstone-bunrei/internal/config"
 )
 
 const (
 	defaultDatabaseHost     = "127.0.0.1"
 	defaultDatabasePort     = "5443"
 	defaultDatabasePassword = "app"
+	defaultStorageEndpoint  = "http://127.0.0.1:8338"
+	defaultStorageAccount   = "admin"
+	defaultStorageKey       = "secret"
 )
 
 func getenv(name, def string) string {
@@ -33,6 +41,18 @@ func databaseHostPort() (host, port string) {
 
 func databasePassword() string {
 	return getenv("BUNREI_DATABASE_PASSWORD", defaultDatabasePassword)
+}
+
+func stack() []string {
+	dbHost, dbPort := databaseHostPort()
+	return []string{
+		"BUNREI_DATABASE_HOST=" + dbHost,
+		"BUNREI_DATABASE_PORT=" + dbPort,
+		"BUNREI_DATABASE_PASSWORD=" + databasePassword(),
+		"BUNREI_STORAGE_ENDPOINT=" + getenv("BUNREI_STORAGE_ENDPOINT", defaultStorageEndpoint),
+		"BUNREI_STORAGE_ACCOUNT=" + getenv("BUNREI_STORAGE_ACCOUNT", defaultStorageAccount),
+		"BUNREI_STORAGE_KEY=" + getenv("BUNREI_STORAGE_KEY", defaultStorageKey),
+	}
 }
 
 // Main is the suite's TestMain: it builds cmd/server once, with the race
@@ -88,17 +108,14 @@ func (s *Service) Ready(t testing.TB) *Service {
 
 func environment(opts Options, addr string) []string {
 	host, port, _ := net.SplitHostPort(addr)
-	dbHost, dbPort := databaseHostPort()
 	env := []string{
 		"BUNREI_ENV=",
 		"BUNREI_LOG_LEVEL=debug",
 		"BUNREI_LOG_FORMAT=text",
 		"BUNREI_SERVER_HOST=" + host,
 		"BUNREI_SERVER_PORT=" + port,
-		"BUNREI_DATABASE_HOST=" + dbHost,
-		"BUNREI_DATABASE_PORT=" + dbPort,
-		"BUNREI_DATABASE_PASSWORD=" + databasePassword(),
 	}
+	env = append(env, stack()...)
 	return append(env, opts.Env...)
 }
 
@@ -143,4 +160,25 @@ func Database(t testing.TB) *sql.DB {
 	}
 	t.Cleanup(func() { _ = db.Shutdown(context.Background()) })
 	return db.Conn()
+}
+
+// Compose loads the service's configuration as the binary does, from the
+// module root's base file with the harness's variables pointing it at the
+// compose stack, and returns the App described over it, unbuilt, so a test
+// can Build and drive a node no route reaches, such as the content store.
+// It sets the variables and the working directory for the test's duration,
+// so a test that calls it cannot run in parallel.
+func Compose(t *testing.T) *app.App {
+	t.Helper()
+	t.Chdir("..")
+	t.Setenv("BUNREI_ENV", "")
+	for _, kv := range stack() {
+		name, value, _ := strings.Cut(kv, "=")
+		t.Setenv(name, value)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load the configuration: %v", err)
+	}
+	return app.New(cfg, io.Discard)
 }
