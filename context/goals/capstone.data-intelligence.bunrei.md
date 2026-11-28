@@ -1,8 +1,8 @@
 # goal · capstone.data-intelligence.bunrei
 
-- **State:** brief ready
-- **Task:** document-extraction
-- **Branch:** document-extraction
+- **State:** idle
+- **Task:** none
+- **Branch:** none
 
 ## Tasks
 
@@ -13,120 +13,13 @@
 5. [x] messaging-append
 6. [x] messaging-work-queue
 7. [x] state
-8. [ ] document-extraction
+8. [x] document-extraction
 9. [ ] api
 10. [ ] jobs
 11. [ ] prompts
 12. [ ] event-stream
 13. [ ] tool-packaging
 14. [ ] foundation-notes
-
-## Task brief · document-extraction
-
-**Problem**
-
-docinfer only extracts per source: once for each output text, image description, and transcript.
-Athena's document summary and its video summary and key moments need two more scopes: one over a
-job's whole text, and one along a video's timeline of frames and transcript. protocol.md and
-events.md plan both for docinfer's next minor. Bunrei's `api` and `jobs` and Mikoshi's `ingest`
-read their shapes. A long document can exceed the extraction model's 131,072-token context, and
-the gateway can't count that model's tokens.
-
-**Behaviors**
-1. `Options` gains `Document` and `Timeline`, each an optional `*Extract` beside `Extract`. Each
-   is checked as `Extract` is. When either is set without `Config.Extraction`, the run stops,
-   permanent, before reading an input.
-2. `Extraction` gains `WindowRunes`, with no default. `New` refuses a value below 1 when
-   Extraction is set, matching `ErrRequest`. The value is not part of the identity.
-3. A job's document text is every non-empty per-source text joined in pull order: output texts,
-   image descriptions, and transcripts, but never metadata texts. A page whose layer skipped
-   vision contributes its layer text. Once inputs end and every input has settled, the document
-   text is extracted once with `Document`, before the counts.
-4. A text within `WindowRunes` takes one call. A longer text is cut by `chunk.Splitter` under
-   `WindowRunes`, and each window is extracted with the same `Extract`. A combine call then reads
-   the windows' replies in order, under docinfer's fixed combine instruction and the `Extract`'s
-   schema. Combine calls repeat over runs of replies until one reply remains.
-5. Every window and combine call is keyed by the extraction's identity and the SHA-256 of that
-   call's own input. The result comes from the cache or the model, and is then held. A cached
-   rerun asks the model nothing. The combine instruction's version is part of the identity's
-   request version.
-6. Each call follows the existing failure table and `Final` rule. A window that is refused,
-   failed, or incomplete is listed by index in `Failed`, and combine reads only the windows with
-   text. The document is extracted when every call extracted. Otherwise its outcome is failed,
-   refused, or incomplete, in the transcript rule's order.
-7. With `Timeline` set, each video-stage part gets one timeline extraction:
-   - Frame descriptions sit at their `MetaTime`.
-   - The transcript is cut at the join's seams into each window's words, placed at that window's
-     `MetaStart`–`MetaEnd`.
-   - Lines are ordered by time as `[m:ss–m:ss] heard: …`, the window's span, and
-     `[m:ss] seen: …`.
-   - A long timeline is windowed and combined as in behavior 4.
-   - An audio-stage part gets no timeline. A video part with neither descriptions nor a
-     transcript gets no extraction.
-8. A timeline extraction is yielded after its video part's own event and after its frames' and
-   transcript's inferences. The video part's own event settles once its timeline is yielded;
-   `Pending` is unchanged.
-9. `Inference` gains `scope`, `document` or `timeline`, omitted for per-source inferences:
-   - Only each scope's final inference is yielded. Window results are cached, not yielded.
-   - The document inference's Part is the depth-0 part. The timeline inference's Part is the
-     video part.
-   - `ContentSHA256` lists the SHA-256s of the texts read, in order.
-   - Usage and requests are summed over every call.
-   - Neither scope's text is chunked.
-10. `Progress` streams for each call, carrying that call's input SHA-256. A cached call yields no
-    progress.
-11. `ExtractionCounts` counts each final inference under its outcome, and every call in Requests
-    and Held.
-12. `job.Runner` yields no `Checkpoint` while `Options.Document` is set, so a redelivery replays
-    the job from the start through docproc's index and docinfer's cache.
-13. A golden key pins the combine request. The package documentation and the failure table cover
-    both scopes. The changelog's v0.6.0 section is the release notes.
-
-**Test seams**
-- `Pipeline.Run` over `MemoryCache` and dispatch's memory content, with go-ai's `aitest` serving
-  the extraction replies. It covers window and combine calls, the failure-table rows, a cached
-  rerun, timeline order from window and frame metadata, and outcome and `Failed`.
-- `job.Runner.Run`, for the checkpoint rule.
-- The live extraction tier (`integration` tag, agent row): one document longer than a small
-  `WindowRunes`, and one short video.
-
-**Slices**
-1. cmd/docinfer: go-core v0.12.0 → v0.13.0. Done when docinfer's currency command exits 0 and the
-   check passes.
-2. The new `Options` fields, `Extraction.WindowRunes`, `Inference.scope`, and their checks in
-   `New` and `Run`.
-3. Document scope within one window: assembling the text, the call, the cache, and the outcome.
-4. Windowing and combining: the windows, the combine calls, `Failed`, and summed usage and
-   requests.
-5. Timeline scope: the timeline built from frames and transcript windows, through the same call
-   path.
-6. `job`: no checkpoints while `Document` is set.
-7. Package documentation, the golden key, the live tier, and the changelog.
-
-**Out of scope**
-- Extraction configuration in cmd/docinfer (backlog entry).
-- Bunrei's starting `WindowRunes` and its client shapes (`api`, `jobs`).
-- Timelines for audio-only parts.
-- Word-level transcript times.
-- Athena's "detected" events.
-- Chunking or embedding either new scope's text.
-
-**Door**
-
-One-way at release: the tags publish v0.6.0's shapes, and `Inference.scope` and the new `Options`
-fields become wire and API contracts. The code before the tags is two-way.
-
-**Release**
-- docinfer `v0.6.0`
-- `postgres/v0.1.4`: requires docinfer v0.6.0
-- `cmd/docinfer/v0.4.1`: go-core v0.13.0, docinfer v0.6.0
-- `acceptance` stays untagged; its requirement moves to v0.6.0
-
-## Progress
-
-slices 7/7 committed · standards ✓ · spec ✓ (2 gaps settled by escalation) · editor ✓
-- escalation, spec round 1: video part settlement hold on its timeline; heard-line span format: keep the hold, keep the span (both recs)
-- live tier: checkHeld fixed for held extraction calls and inference order (14fc8d1); passes on the gateway
 
 ## Decisions
 
