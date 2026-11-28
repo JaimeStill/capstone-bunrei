@@ -121,7 +121,7 @@ routes, schema and settings stay two-way while no deployment holds data.
 
 ## Progress
 
-slices 2/7 committed · standards — · spec — · editor —
+slices 3/7 committed · standards — · spec — · editor —
 
 ## Decisions
 
