@@ -10,7 +10,7 @@ jq = "1.8.2"
 
 [env]
 BUNREI_ENV = "local"
-GO_MODULES = "."
+GO_MODULES = ". client"
 
 [tasks.check]
 description = "Build, vet, format, fix, tidy, test the unit tier, and lint every module, vetting, fixing, and linting the integration suite too, then run lint-context and lint-references at the project root and, when the project is nested, at the git top level; writes nothing"
