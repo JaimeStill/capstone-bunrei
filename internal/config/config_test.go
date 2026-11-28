@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/standards-lab/go-web-sdk"
 
 	"github.com/JaimeStill/capstone-bunrei/internal/config"
+	"github.com/JaimeStill/capstone-bunrei/internal/config/configtest"
 )
 
 func TestConfig_MergeOverlaysSetFields(t *testing.T) {
@@ -35,7 +37,7 @@ func TestConfig_MergeOverlaysSetFields(t *testing.T) {
 }
 
 func TestConfig_FinalizeDefaults(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := configtest.Minimal()
 	if err := cfg.Finalize(""); err != nil {
 		t.Fatalf("Finalize: %v", err)
 	}
@@ -57,7 +59,7 @@ func TestConfig_FinalizeReadsEnvUnderPrefix(t *testing.T) {
 	t.Setenv("BUNREI_LOG_LEVEL", "error")
 	t.Setenv("BUNREI_SERVER_PORT", "7070")
 
-	cfg := &config.Config{}
+	cfg := configtest.Minimal()
 	if err := cfg.Finalize("svc"); err != nil {
 		t.Fatalf("Finalize: %v", err)
 	}
@@ -75,7 +77,7 @@ func TestConfig_FinalizeEnvOverrides(t *testing.T) {
 	t.Setenv("BUNREI_LOG_LEVEL", "debug")
 	t.Setenv("BUNREI_SERVER_PORT", "9090")
 
-	cfg := &config.Config{}
+	cfg := configtest.Minimal()
 	if err := cfg.Finalize("bunrei"); err != nil {
 		t.Fatalf("Finalize: %v", err)
 	}
@@ -96,7 +98,7 @@ func TestConfig_FinalizeRejectsNonPositiveShutdownTimeout(t *testing.T) {
 		t.Run(v, func(t *testing.T) {
 			t.Setenv("BUNREI_SHUTDOWN_TIMEOUT", v)
 
-			cfg := &config.Config{}
+			cfg := configtest.Minimal()
 			err := cfg.Finalize("bunrei")
 			if err == nil {
 				t.Fatalf("Finalize accepted shutdown_timeout %s", v)
@@ -119,7 +121,7 @@ func TestConfig_FinalizeRejectsNonPositiveFileShutdownTimeout(t *testing.T) {
 func TestConfig_FinalizeRejectsUnparsableShutdownTimeout(t *testing.T) {
 	t.Setenv("BUNREI_SHUTDOWN_TIMEOUT", "soon")
 
-	cfg := &config.Config{}
+	cfg := configtest.Minimal()
 	err := cfg.Finalize("bunrei")
 	if err == nil {
 		t.Fatal("Finalize accepted an unparsable BUNREI_SHUTDOWN_TIMEOUT")
@@ -133,7 +135,8 @@ func TestConfig_FinalizeEmptyPrefixReadsNoShutdownOverride(t *testing.T) {
 	t.Setenv("BUNREI_SHUTDOWN_TIMEOUT", "30s")
 	t.Setenv("SHUTDOWN_TIMEOUT", "30s")
 
-	cfg := &config.Config{ShutdownTimeout: libconfig.Duration(3 * time.Second)}
+	cfg := configtest.Minimal()
+	cfg.ShutdownTimeout = libconfig.Duration(3 * time.Second)
 	if err := cfg.Finalize(""); err != nil {
 		t.Fatalf("Finalize: %v", err)
 	}
@@ -154,7 +157,7 @@ func TestConfig_MergeOverlayShutdownTimeoutReplacesBase(t *testing.T) {
 func TestConfig_FinalizeWrapsChildErrors(t *testing.T) {
 	t.Setenv("BUNREI_LOG_LEVEL", "verbose")
 
-	cfg := &config.Config{}
+	cfg := configtest.Minimal()
 	err := cfg.Finalize("bunrei")
 	if err == nil {
 		t.Fatal("Finalize accepted an invalid log level")
@@ -165,7 +168,7 @@ func TestConfig_FinalizeWrapsChildErrors(t *testing.T) {
 }
 
 func TestReads_FinalizeDefaults(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := configtest.Minimal()
 	if err := cfg.Finalize(""); err != nil {
 		t.Fatalf("Finalize: %v", err)
 	}
@@ -200,7 +203,7 @@ func TestReads_FinalizeEnvOverrides(t *testing.T) {
 	t.Setenv("BUNREI_READS_DEFAULT_SIZE", "25")
 	t.Setenv("BUNREI_READS_MAX_SIZE", "250")
 
-	cfg := &config.Config{}
+	cfg := configtest.Minimal()
 	if err := cfg.Finalize("bunrei"); err != nil {
 		t.Fatalf("Finalize: %v", err)
 	}
@@ -229,13 +232,371 @@ func TestReads_FinalizeRejectsInvalidPolicy(t *testing.T) {
 			t.Setenv("BUNREI_READS_DEFAULT_SIZE", tc.defaultSize)
 			t.Setenv("BUNREI_READS_MAX_SIZE", tc.maxSize)
 
-			cfg := &config.Config{}
+			cfg := configtest.Minimal()
 			err := cfg.Finalize("bunrei")
 			if err == nil {
 				t.Fatal("Finalize accepted an invalid reads policy")
 			}
 			if !strings.Contains(err.Error(), "reads:") || !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("error = %v, want the reads block wrap naming %s", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestDatabase_MergeOverlaysSetFields(t *testing.T) {
+	base := configtest.Minimal()
+	base.Database.User = "app"
+	base.Database.Options = map[string]string{"sslmode": "disable"}
+
+	overlay := &config.Config{}
+	overlay.Database.Host = "127.0.0.1"
+	overlay.Database.Port = new(5443)
+
+	base.Merge(overlay)
+
+	if base.Database.Host != "127.0.0.1" || base.Database.Port == nil || *base.Database.Port != 5443 {
+		t.Errorf("Database address = %s:%v, want the overlay's 127.0.0.1:5443", base.Database.Host, base.Database.Port)
+	}
+	if base.Database.Name != "app" || base.Database.User != "app" || base.Database.Options["sslmode"] != "disable" {
+		t.Errorf("Database = %+v, want the base's name, user, and options kept", base.Database)
+	}
+}
+
+func TestDatabase_FinalizeEnvOverrides(t *testing.T) {
+	t.Setenv("BUNREI_DATABASE_HOST", "db.internal")
+	t.Setenv("BUNREI_DATABASE_PORT", "5443")
+	t.Setenv("BUNREI_DATABASE_NAME", "bunrei")
+	t.Setenv("BUNREI_DATABASE_USER", "svc")
+	t.Setenv("BUNREI_DATABASE_PASSWORD", "secret")
+
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize("bunrei"); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	db := cfg.Database
+	if db.Host != "db.internal" || db.Port == nil || *db.Port != 5443 {
+		t.Errorf("Database address = %s:%v, want db.internal:5443", db.Host, db.Port)
+	}
+	if db.Name != "bunrei" || db.User != "svc" || db.Password != "secret" {
+		t.Errorf("Database identity = %s/%s/%s, want bunrei/svc/secret", db.Name, db.User, db.Password)
+	}
+	if db.Env.Port != "BUNREI_DATABASE_PORT" {
+		t.Errorf("Database.Env.Port = %q, want BUNREI_DATABASE_PORT", db.Env.Port)
+	}
+}
+
+func TestDatabase_FinalizeRequiresName(t *testing.T) {
+	cfg := &config.Config{}
+	err := cfg.Finalize("")
+	if err == nil {
+		t.Fatal("Finalize accepted a database block without a name")
+	}
+	if !strings.Contains(err.Error(), "database:") {
+		t.Errorf("error = %v, want the database block wrap", err)
+	}
+}
+
+func TestStorage_FinalizeEnvOverrides(t *testing.T) {
+	t.Setenv("BUNREI_STORAGE_ENDPOINT", "http://127.0.0.1:8338")
+	t.Setenv("BUNREI_STORAGE_CONTAINER", "jobs")
+	t.Setenv("BUNREI_STORAGE_ACCOUNT", "admin")
+	t.Setenv("BUNREI_STORAGE_KEY", "secret")
+	t.Setenv("BUNREI_STORAGE_OPTIONS_REGION", "eu-west-1")
+
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize("bunrei"); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	st := cfg.Storage
+	if st.Endpoint != "http://127.0.0.1:8338" || st.Container != "jobs" {
+		t.Errorf("Storage = %s/%s, want http://127.0.0.1:8338/jobs", st.Endpoint, st.Container)
+	}
+	if st.Account != "admin" || st.Key != "secret" {
+		t.Errorf("Storage credential = %s/%s, want admin/secret", st.Account, st.Key)
+	}
+	if st.Options["region"] != "eu-west-1" {
+		t.Errorf("Storage.Options = %v, want region eu-west-1", st.Options)
+	}
+	if st.Env.Key != "BUNREI_STORAGE_KEY" {
+		t.Errorf("Storage.Env.Key = %q, want BUNREI_STORAGE_KEY", st.Env.Key)
+	}
+}
+
+func TestStorage_FinalizeRequiresContainer(t *testing.T) {
+	cfg := configtest.Minimal()
+	cfg.Storage.Container = ""
+	err := cfg.Finalize("")
+	if err == nil {
+		t.Fatal("Finalize accepted a storage block without a container")
+	}
+	if !strings.Contains(err.Error(), "storage:") || !strings.Contains(err.Error(), "container") {
+		t.Errorf("error = %v, want the storage block wrap naming the container", err)
+	}
+}
+
+func TestObjects_FinalizeDefaults(t *testing.T) {
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize(""); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	o := cfg.Objects
+	if *o.ContentPrefix != "content/" || *o.InputPrefix != "input/" {
+		t.Errorf("Objects prefixes = %q, %q, want content/ and input/", *o.ContentPrefix, *o.InputPrefix)
+	}
+	if got := o.RenewAge.Duration(); got != 7*24*time.Hour {
+		t.Errorf("Objects.RenewAge = %s, want 168h", got)
+	}
+	if o.Env != (config.ObjectsEnv{}) {
+		t.Errorf("Objects.Env = %+v, want empty under the empty prefix", o.Env)
+	}
+}
+
+func TestObjects_MergeOverlaysSetFields(t *testing.T) {
+	base := &config.Config{}
+	base.Objects.ContentPrefix = new("content/")
+	base.Objects.RenewAge = new(libconfig.Duration(time.Hour))
+
+	overlay := &config.Config{}
+	overlay.Objects.RenewAge = new(libconfig.Duration(2 * time.Hour))
+
+	base.Merge(overlay)
+
+	if got := base.Objects.RenewAge.Duration(); got != 2*time.Hour {
+		t.Errorf("Objects.RenewAge = %s, want the overlay's 2h", got)
+	}
+	if got := *base.Objects.ContentPrefix; got != "content/" {
+		t.Errorf("Objects.ContentPrefix = %q, want the base's content/", got)
+	}
+}
+
+func TestObjects_FinalizeEnvOverrides(t *testing.T) {
+	t.Setenv("BUNREI_OBJECTS_CONTENT_PREFIX", "c/")
+	t.Setenv("BUNREI_OBJECTS_INPUT_PREFIX", "i/")
+	t.Setenv("BUNREI_OBJECTS_RENEW_AGE", "24h")
+
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize("bunrei"); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	o := cfg.Objects
+	if *o.ContentPrefix != "c/" || *o.InputPrefix != "i/" || o.RenewAge.Duration() != 24*time.Hour {
+		t.Errorf("Objects = %q, %q, %s, want c/, i/, 24h", *o.ContentPrefix, *o.InputPrefix, o.RenewAge)
+	}
+	want := config.ObjectsEnv{
+		ContentPrefix: "BUNREI_OBJECTS_CONTENT_PREFIX",
+		InputPrefix:   "BUNREI_OBJECTS_INPUT_PREFIX",
+		RenewAge:      "BUNREI_OBJECTS_RENEW_AGE",
+	}
+	if o.Env != want {
+		t.Errorf("Objects.Env = %+v, want %+v", o.Env, want)
+	}
+}
+
+func TestObjects_FinalizeRejectsInvalidLayout(t *testing.T) {
+	cases := map[string]struct {
+		content, input, renew string
+		want                  string
+	}{
+		"content without a slash": {"content", "input/", "1h", "content_prefix"},
+		"input a bare slash":      {"content/", "/", "1h", "input_prefix"},
+		"same prefix":             {"blobs/", "blobs/", "1h", "overlap"},
+		"input under content":     {"blobs/", "blobs/input/", "1h", "overlap"},
+		"negative renew age":      {"content/", "input/", "-1h", "renew_age"},
+		"renew age not a period":  {"content/", "input/", "weekly", "BUNREI_OBJECTS_RENEW_AGE"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("BUNREI_OBJECTS_CONTENT_PREFIX", tc.content)
+			t.Setenv("BUNREI_OBJECTS_INPUT_PREFIX", tc.input)
+			t.Setenv("BUNREI_OBJECTS_RENEW_AGE", tc.renew)
+
+			cfg := configtest.Minimal()
+			err := cfg.Finalize("bunrei")
+			if err == nil {
+				t.Fatal("Finalize accepted an invalid object layout")
+			}
+			if !strings.Contains(err.Error(), "objects:") || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %v, want the objects block wrap naming %s", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestNATS_FinalizeEnvOverrides(t *testing.T) {
+	t.Setenv("BUNREI_NATS_URL", "nats://nats.internal:4222")
+	t.Setenv("BUNREI_NATS_STREAM", "JOBS")
+	t.Setenv("BUNREI_NATS_PREFIX", "jobs")
+	t.Setenv("BUNREI_NATS_OWNER", "true")
+	t.Setenv("BUNREI_NATS_MAX_AGE", "168h")
+	t.Setenv("BUNREI_NATS_QUEUE_URL", "nats://queue.internal:4222")
+	t.Setenv("BUNREI_NATS_QUEUE_STREAM", "WORK")
+	t.Setenv("BUNREI_NATS_QUEUE_SUBJECT", "work")
+	t.Setenv("BUNREI_NATS_QUEUE_DEAD_LETTER", "work.dead")
+	t.Setenv("BUNREI_NATS_QUEUE_OWNER", "true")
+	t.Setenv("BUNREI_NATS_QUEUE_MAX_AGE", "24h")
+
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize("bunrei"); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	n := cfg.NATS
+	if n.URL != "nats://nats.internal:4222" || n.Stream != "JOBS" || n.Prefix != "jobs" ||
+		n.Owner == nil || !*n.Owner || n.MaxAge.Duration() != 168*time.Hour {
+		t.Errorf("nats = %+v, want every field from BUNREI_NATS_*", n)
+	}
+	q := cfg.NATSQueue
+	if q.URL != "nats://queue.internal:4222" || q.Stream != "WORK" || q.Subject != "work" || q.DeadLetter != "work.dead" ||
+		q.Owner == nil || !*q.Owner || q.MaxAge.Duration() != 24*time.Hour {
+		t.Errorf("nats_queue = %+v, want every field from BUNREI_NATS_QUEUE_*", q)
+	}
+}
+
+func TestNATS_FinalizeNamesInvalidBlocks(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		spoil func(*config.Config)
+		block string
+	}{
+		{"no stream", func(c *config.Config) { c.NATS.Stream = "" }, "nats: config:"},
+		{"a non-owner's max_age", func(c *config.Config) { c.NATS.MaxAge = libconfig.Duration(time.Hour) }, "nats: config:"},
+		{"no queue subject", func(c *config.Config) { c.NATSQueue.Subject = "" }, "nats: queue config:"},
+		{"a dead letter over the subject", func(c *config.Config) { c.NATSQueue.DeadLetter = "bunrei" }, "nats: queue config:"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := configtest.Minimal()
+			tc.spoil(cfg)
+			err := cfg.Finalize("")
+			if err == nil {
+				t.Fatal("Finalize accepted the block")
+			}
+			if !strings.HasPrefix(err.Error(), tc.block) {
+				t.Errorf("error = %v, want it to name the block, %s", err, tc.block)
+			}
+		})
+	}
+}
+
+func TestConfig_BaseFileLoadsWithTheExampleSecrets(t *testing.T) {
+	cfg, err := libconfig.Load[config.Config](libconfig.Options{Dir: "../..", SecretsName: "secrets.example.json"})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Database.Password != "app" || cfg.Storage.Key != "secret" {
+		t.Errorf("secrets = database %q, storage %q; want the example file's app and secret", cfg.Database.Password, cfg.Storage.Key)
+	}
+}
+
+func TestSweep_FinalizeDefaults(t *testing.T) {
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize(""); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	s := cfg.Sweep
+	if s.Interval.Duration() != 30*time.Second || *s.Batch != 100 {
+		t.Errorf("Sweep = {%s %d}, want {30s 100}", s.Interval, *s.Batch)
+	}
+	day := 24 * time.Hour
+	got := []time.Duration{s.OutboxAge.Duration(), s.InboxAge.Duration(), s.IndexAge.Duration(), s.ContentAge.Duration(), s.InputAge.Duration()}
+	want := []time.Duration{7 * day, 7 * day, 30 * day, 67 * day, 30 * day}
+	if !slices.Equal(got, want) {
+		t.Errorf("Sweep ages {outbox inbox index content input} = %v, want %v", got, want)
+	}
+	if s.Env != (config.SweepEnv{}) {
+		t.Errorf("Sweep.Env = %+v, want empty under the empty prefix", s.Env)
+	}
+}
+
+func TestSweep_MergeOverlaysSetFields(t *testing.T) {
+	base := &config.Config{}
+	base.Sweep.Batch = new(10)
+	base.Sweep.IndexAge = new(libconfig.Duration(time.Hour))
+
+	overlay := &config.Config{}
+	overlay.Sweep.ContentAge = new(libconfig.Duration(2 * time.Hour))
+
+	base.Merge(overlay)
+
+	if *base.Sweep.Batch != 10 || base.Sweep.IndexAge.Duration() != time.Hour {
+		t.Errorf("Sweep = {batch %d, index_age %s}, want the base's {10 1h}", *base.Sweep.Batch, base.Sweep.IndexAge)
+	}
+	if base.Sweep.ContentAge == nil || base.Sweep.ContentAge.Duration() != 2*time.Hour {
+		t.Errorf("Sweep.ContentAge = %v, want the overlay's 2h", base.Sweep.ContentAge)
+	}
+}
+
+func TestSweep_FinalizeEnvOverrides(t *testing.T) {
+	vars := map[string]string{
+		"BUNREI_SWEEP_INTERVAL":    "5s",
+		"BUNREI_SWEEP_BATCH":       "7",
+		"BUNREI_SWEEP_OUTBOX_AGE":  "48h",
+		"BUNREI_SWEEP_INBOX_AGE":   "72h",
+		"BUNREI_SWEEP_INDEX_AGE":   "96h",
+		"BUNREI_SWEEP_CONTENT_AGE": "400h",
+		"BUNREI_SWEEP_INPUT_AGE":   "200h",
+	}
+	for name, v := range vars {
+		t.Setenv(name, v)
+	}
+
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize("bunrei"); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	s := cfg.Sweep
+	if s.Interval.Duration() != 5*time.Second || *s.Batch != 7 {
+		t.Errorf("Sweep = {%s %d}, want {5s 7}", s.Interval, *s.Batch)
+	}
+	got := []time.Duration{s.OutboxAge.Duration(), s.InboxAge.Duration(), s.IndexAge.Duration(), s.ContentAge.Duration(), s.InputAge.Duration()}
+	want := []time.Duration{48 * time.Hour, 72 * time.Hour, 96 * time.Hour, 400 * time.Hour, 200 * time.Hour}
+	if !slices.Equal(got, want) {
+		t.Errorf("Sweep ages {outbox inbox index content input} = %v, want %v", got, want)
+	}
+	wantEnv := config.SweepEnv{
+		Interval:   "BUNREI_SWEEP_INTERVAL",
+		Batch:      "BUNREI_SWEEP_BATCH",
+		OutboxAge:  "BUNREI_SWEEP_OUTBOX_AGE",
+		InboxAge:   "BUNREI_SWEEP_INBOX_AGE",
+		IndexAge:   "BUNREI_SWEEP_INDEX_AGE",
+		ContentAge: "BUNREI_SWEEP_CONTENT_AGE",
+		InputAge:   "BUNREI_SWEEP_INPUT_AGE",
+	}
+	if s.Env != wantEnv {
+		t.Errorf("Sweep.Env = %+v, want %+v", s.Env, wantEnv)
+	}
+}
+
+func TestSweep_FinalizeRejectsInvalidPolicy(t *testing.T) {
+	cases := map[string]struct {
+		name, value string
+		want        string
+	}{
+		"zero interval":        {"BUNREI_SWEEP_INTERVAL", "0s", "interval"},
+		"zero batch":           {"BUNREI_SWEEP_BATCH", "0", "batch"},
+		"negative outbox age":  {"BUNREI_SWEEP_OUTBOX_AGE", "-1h", "outbox_age"},
+		"zero inbox age":       {"BUNREI_SWEEP_INBOX_AGE", "0s", "inbox_age"},
+		"zero index age":       {"BUNREI_SWEEP_INDEX_AGE", "0s", "index_age"},
+		"index age no period":  {"BUNREI_SWEEP_INDEX_AGE", "monthly", "BUNREI_SWEEP_INDEX_AGE"},
+		"content within renew": {"BUNREI_SWEEP_CONTENT_AGE", "168h", "content_age"},
+		"input within renew":   {"BUNREI_SWEEP_INPUT_AGE", "24h", "input_age"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(tc.name, tc.value)
+
+			err := configtest.Minimal().Finalize("bunrei")
+			if err == nil {
+				t.Fatal("Finalize accepted an invalid sweep policy")
+			}
+			if !strings.Contains(err.Error(), "sweep:") || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %v, want the sweep block wrap naming %s", err, tc.want)
 			}
 		})
 	}

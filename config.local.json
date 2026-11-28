@@ -4,5 +4,19 @@
   },
   "server": {
     "host": "127.0.0.1"
+  },
+  "database": {
+    "host": "127.0.0.1",
+    "port": 5439
+  },
+  "storage": {
+    "endpoint": "http://127.0.0.1:8335",
+    "account": "admin"
+  },
+  "nats": {
+    "url": "nats://127.0.0.1:4226"
+  },
+  "nats_queue": {
+    "url": "nats://127.0.0.1:4226"
   }
 }

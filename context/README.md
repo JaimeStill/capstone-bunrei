@@ -13,9 +13,11 @@ architecture and scope are `standards-lab/context/data-intelligence.md`, and its
 
 ## Capability map
 
-- **Protocol and client module** (planned): the `capstone.data-intelligence.bunrei` goal, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
+- **Protocol and client module** (planned): the nested `client` module holds the job's types; the `capstone.data-intelligence.bunrei` goal's `api` task adds the Queries, Commands, and `Client`, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
 - **Chunked upload** (planned): the `capstone.data-intelligence.bunrei` goal, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
-- **Jobs and work queue** (planned): jobs will run on go-messaging's work queue, `messaging.Queue`, which go-messaging v0.5.0 and nats/v0.5.0 build; the `capstone.data-intelligence.bunrei` goal, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
+- **Job root** (built): the [`domain/jobs`](../domain/jobs/doc.go) package loads a job by folding the events on its `bunrei.job.<job>` subject and appends the next event under the subject's expected last sequence.
+- **Stores and retention** (built): PostgreSQL holds docproc's index, docinfer's cache, and go-messaging's outbox and inbox, migrated at startup by the schema node; S3 blob storage holds docproc's content under `content/` and each job's staged input under `input/`; JetStream holds the BUNREI_JOBS and BUNREI_WORK streams; the sweeper reactor deletes rows and objects past their configured ages, through the [`expiry`](../expiry/doc.go) package for blobs; the composition root's [package documentation](../internal/app/doc.go) describes each.
+- **Jobs and work queue** (planned): workers will run jobs from the BUNREI_WORK stream, go-messaging's `messaging.Queue`, which Bunrei provisions; the `capstone.data-intelligence.bunrei` goal's `jobs` task, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
 - **Processing profiles** (planned): the `capstone.data-intelligence.bunrei` goal, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
 - **Prompt overrides** (planned): an active override stored at runtime replaces a profile's default vision or transcription prompt; the `capstone.data-intelligence.bunrei` goal's `prompts` task, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
 - **Event and result-batch stream** (planned): the `capstone.data-intelligence.bunrei` goal, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.

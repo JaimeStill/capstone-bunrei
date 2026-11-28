@@ -10,6 +10,10 @@ import (
 	"github.com/JaimeStill/capstone-bunrei/internal/config"
 )
 
+const required = `"database": {"name": "app"}, "storage": {"container": "bunrei"}, ` +
+	`"nats": {"stream": "BUNREI_JOBS", "prefix": "bunrei.job"}, ` +
+	`"nats_queue": {"stream": "BUNREI_WORK", "subject": "bunrei.work", "dead_letter": "bunrei.work.dead"}`
+
 func inDir(t *testing.T, files map[string]string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -24,7 +28,7 @@ func inDir(t *testing.T, files map[string]string) {
 }
 
 func TestLoad_ShutdownTimeoutIsTopLevelKey(t *testing.T) {
-	inDir(t, map[string]string{"config.json": `{"shutdown_timeout": "3s"}`})
+	inDir(t, map[string]string{"config.json": `{"shutdown_timeout": "3s", ` + required + `}`})
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -36,7 +40,7 @@ func TestLoad_ShutdownTimeoutIsTopLevelKey(t *testing.T) {
 }
 
 func TestLoad_ShutdownTimeoutDefaultsTo10s(t *testing.T) {
-	inDir(t, map[string]string{"config.json": `{}`})
+	inDir(t, map[string]string{"config.json": `{` + required + `}`})
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -48,7 +52,7 @@ func TestLoad_ShutdownTimeoutDefaultsTo10s(t *testing.T) {
 }
 
 func TestLoad_EnvOverridesFileShutdownTimeout(t *testing.T) {
-	inDir(t, map[string]string{"config.json": `{"shutdown_timeout": "3s"}`})
+	inDir(t, map[string]string{"config.json": `{"shutdown_timeout": "3s", ` + required + `}`})
 	t.Setenv("BUNREI_SHUTDOWN_TIMEOUT", "4s")
 
 	cfg, err := config.Load()
@@ -71,7 +75,7 @@ func TestLoad_OverlayShutdownTimeout(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			inDir(t, map[string]string{
-				"config.json":      `{"shutdown_timeout": "3s"}`,
+				"config.json":      `{"shutdown_timeout": "3s", ` + required + `}`,
 				"config.test.json": tc.overlay,
 			})
 			t.Setenv("BUNREI_ENV", "test")

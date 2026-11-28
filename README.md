@@ -40,7 +40,7 @@ Each task wraps a plain command, so the repository works without mise:
 | `mise run vet` | `go vet -tags integration ./...` | Compile-check and vet, the integration suite included |
 | `mise run serve` | `go run ./cmd/server` | Run the service locally |
 | `mise run test` | `go test -race ./...` | Run the unit tier |
-| `mise run integration` | `go test -race -count=1 -tags integration ./integration/` | Run the integration tier against the built service |
+| `mise run integration` | `docker compose up -d --wait --build`, then `go test -race -count=1 -tags integration ./integration/` | Run the integration tier against the built service on the isolated compose stack, then tear the stack down |
 | `mise run fmt` | `gofmt -w .` | Format the source |
 | `mise run tidy` | `go mod tidy` | Reconcile module requirements |
 | `mise run lint` | `golangci-lint run --build-tags integration ./...` | Lint, the integration suite included |
@@ -51,7 +51,9 @@ Two tiers. The unit tier is hermetic and runs on every pull request: `go test -r
 touching no service, network, or disk. The integration tier is the `integration` package: an
 untagged harness that builds `cmd/server` once, runs it as a subprocess configured by `BUNREI_*`
 variables on a port it reserved, and drives it through its HTTP surface, over the toolkit the
-SDKs ship for the purpose (go-core's `process/processtest`, go-web-sdk's `webtest`). Under the
+SDKs ship for the purpose (go-core's `process/processtest`, go-web-sdk's `webtest`). Where a
+capability has no route, the harness composes the service's own nodes in the test process, and a
+test opens its own PostgreSQL pool or NATS connection to read beneath the API. Under the
 `integration` build tag, the suite asserts the service's behavior through its API. It runs on
 merge to main and on demand, below the per-PR rate by design; a release is cut only from a main
 whose run has passed.
@@ -67,11 +69,12 @@ a reactor sits below the server by its membership of the reactors group alone, a
 between nodes is dropped but one: the server's order after the reactors group, while the group
 is empty. Each check is shown failing on a fixture that breaks it, with the layer table.
 
-The template's suite asserts the baseline: boot, both probes, and the drain. As the build points
-fill in, each capability adds its cases beside them, and the first backing service brings its
-compose stack: the task then boots that stack as an isolated compose project on its own port,
-runs the suite, and tears it down with its volume on exit, so a developer's stack and data are
-never touched. The reference service shows the shape.
+The suite asserts the baseline (boot, both probes, and the drain) and, beside it, each built
+capability: the schema's tables, the content and input stores' round-trips, the provisioned
+streams, the job root over NATS, and a sweep pass deleting an aged object. The suite runs on
+Bunrei's compose stack (NATS, PostgreSQL, and SeaweedFS): `mise run integration` boots it as an
+isolated compose project on its own ports, runs the suite, and tears it down with its volumes on
+exit, so a developer's stack and data are never touched. [Compose](compose/README.md) describes the stack.
 
 ## Configuration
 
@@ -79,14 +82,35 @@ Configuration layers in a fixed precedence, later sources winning:
 
 1. `config.json` — the base file, every knob at its default.
 2. `config.<BUNREI_ENV>.json` — the environment overlay; `mise.toml` sets `BUNREI_ENV=local`, which
-   activates the committed `config.local.json` (loopback host, debug logging).
-3. `secrets.json`, `secrets.<BUNREI_ENV>.json` — gitignored secret layers.
-4. `BUNREI_*` environment variables — the final override:
+   activates the committed `config.local.json` (loopback host, debug logging, and the addresses
+   of the capstone's development stack: NATS on 4226, `postgres-bunrei` on 5439, and the
+   SeaweedFS S3 gateway on 8335).
+3. `secrets.json`, `secrets.<BUNREI_ENV>.json` — gitignored secret layers, holding the database
+   password and the storage key; `secrets.example.json` shows their shape.
+4. `BUNREI_*` environment variables — the final override, each named for its block and key:
    - `BUNREI_LOG_LEVEL`, `BUNREI_LOG_FORMAT`
    - `BUNREI_SERVER_HOST`, `BUNREI_SERVER_PORT`, the four server timeout variables, and
      `BUNREI_SERVER_TRANSFER_RATE`
+   - `BUNREI_DATABASE_*`: go-database's PostgreSQL connection (`database`)
+   - `BUNREI_STORAGE_*`: go-storage's S3 connection (`storage`), whose container is the bucket
+     Bunrei ensures at startup
+   - `BUNREI_NATS_*`, `BUNREI_NATS_QUEUE_*`: go-messaging's NATS broker for the BUNREI_JOBS stream
+     (`nats`), and its work queue for the BUNREI_WORK stream (`nats_queue`), each with its own URL
+     and owning its stream
+   - `BUNREI_OBJECTS_CONTENT_PREFIX`, `BUNREI_OBJECTS_INPUT_PREFIX`, `BUNREI_OBJECTS_RENEW_AGE`
+   - `BUNREI_SWEEP_INTERVAL`, `BUNREI_SWEEP_BATCH`, and `BUNREI_SWEEP_<KEY>_AGE` for `outbox`,
+     `inbox`, `index`, `content`, and `input`
    - `BUNREI_READS_DEFAULT_SIZE`, `BUNREI_READS_MAX_SIZE`
    - `BUNREI_SHUTDOWN_TIMEOUT`
+
+Bunrei owns two blocks besides `reads`. `objects` sets the bucket prefixes that docproc's
+content (`content/`) and each job's staged input (`input/`) are kept under, and the renew age
+(7 days) past which a put of an object already present writes it again. `sweep` sets how often
+the sweeper runs each reclaimer, the budget of one pass, and the age past which each reclaimer
+deletes: published outbox rows and handled inbox rows at 7 days, docproc's index entries at 30,
+objects under `content/` at 67, and objects under `input/` at 30. Startup refuses a content or
+input age at or below the renew age, since an object still in use is rewritten only once it is
+older than that.
 
 Every file is optional — a deployment can run on the base file and environment variables alone,
 or on environment variables only. Each file present decodes strictly: a key the `Config` types do
@@ -103,6 +127,12 @@ and those files are the build points:
 - `reactors.go` for the process-lifetime entry points an occurrence drives
 - `middleware.go` for the router-level middleware
 
+The domain layer holds the job root, the `domain/jobs` package, which folds a job's events and
+appends the next under the expected sequence. The reactors layer holds the sweeper, whose object
+reclaimers are the `expiry` package. The nested `client` module holds the job's types. Each
+package's documentation describes it.
+
 [Building out the service](docs/building-out.md) covers how the layer files define and mount
 their nodes, and walks through adding a domain service, an infrastructure service, an admin
-service, a reactor, middleware, and configuration.
+service, a reactor, middleware, and configuration. It also lists the packages that may import a
+provider.

@@ -12,9 +12,62 @@
     "idle_timeout": "2m",
     "transfer_rate": 65536
   },
+  "database": {
+    "host": "127.0.0.1",
+    "port": 5432,
+    "name": "app",
+    "user": "app",
+    "max_open_conns": 25,
+    "max_idle_conns": 5,
+    "conn_max_lifetime": "15m",
+    "conn_max_idle_time": "5m",
+    "conn_timeout": "5s",
+    "options": {
+      "sslmode": "disable"
+    }
+  },
+  "storage": {
+    "endpoint": "http://127.0.0.1:8333",
+    "container": "bunrei",
+    "request_timeout": "5s",
+    "read_idle_timeout": "30s",
+    "options": {
+      "region": "us-east-1",
+      "try_timeout": "10s"
+    }
+  },
+  "nats": {
+    "url": "nats://127.0.0.1:4222",
+    "stream": "BUNREI_JOBS",
+    "prefix": "bunrei.job",
+    "owner": true,
+    "max_age": "720h"
+  },
+  "nats_queue": {
+    "url": "nats://127.0.0.1:4222",
+    "stream": "BUNREI_WORK",
+    "subject": "bunrei.work",
+    "dead_letter": "bunrei.work.dead",
+    "owner": true,
+    "max_age": "0s"
+  },
+  "objects": {
+    "content_prefix": "content/",
+    "input_prefix": "input/",
+    "renew_age": "168h"
+  },
   "reads": {
     "default_size": 20,
     "max_size": 100
+  },
+  "sweep": {
+    "interval": "30s",
+    "batch": 100,
+    "outbox_age": "168h",
+    "inbox_age": "168h",
+    "index_age": "720h",
+    "content_age": "1608h",
+    "input_age": "720h"
   },
   "shutdown_timeout": "10s"
 }

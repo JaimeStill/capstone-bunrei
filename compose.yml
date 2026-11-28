@@ -1,0 +1,9 @@
+# Bunrei's integration stack: NATS with JetStream, PostgreSQL, and the SeaweedFS S3 gateway.
+# See compose/README.md
+
+name: capstone-bunrei
+
+include:
+  - compose/nats.yml
+  - compose/postgres.yml
+  - compose/seaweedfs.yml

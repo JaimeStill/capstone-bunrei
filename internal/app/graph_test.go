@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/standards-lab/go-core/graph"
 	"github.com/standards-lab/go-core/graph/graphtest"
+	"github.com/standards-lab/go-core/lifecycle"
 	"github.com/standards-lab/go-core/reactor"
 	"github.com/standards-lab/go-web-sdk"
 
@@ -148,10 +150,144 @@ func TestGraph_ServerAboveReactor(t *testing.T) {
 
 	t.Run("outside the reactors group", func(t *testing.T) {
 		a := app.New(configtest.Config(t), io.Discard)
-		stray := fixtureReactor(a, "stray")
+		stray := fixtureReactor(a, "stray", graph.After(a.Nodes().Sweeper))
 		sys := buildAsRun(t, a, stray)
 		wantGuardFails(t, serverAlone(sys, a.Nodes().Server), sys, "stray")
 	})
+}
+
+func TestGraph_ReadinessChecks(t *testing.T) {
+	cfg := configtest.Config(t)
+	a := app.New(cfg, io.Discard)
+	sys := buildAsRun(t, a)
+
+	var got []string
+	for _, c := range lifecycle.New(sys, cfg.Config).Checks() {
+		got = append(got, c.Name)
+	}
+	want := []string{"database", "storage", "job journal", "work queue", "schema", "sweeper"}
+	if !slices.Equal(got, want) {
+		t.Errorf("checks = %v, want %v", got, want)
+	}
+}
+
+func TestGraph_SchemaBetweenTheDatabaseAndTheServer(t *testing.T) {
+	a := app.New(configtest.Config(t), io.Discard)
+	sys := buildAsRun(t, a)
+	n := a.Nodes()
+
+	for _, r := range []graph.Ref{n.Database, n.Schema, n.Server} {
+		if !sys.Has(r) {
+			t.Fatalf("%s is not in the System\nlayers:\n%s", r.Name(), sys)
+		}
+	}
+	below := func(lower, upper graph.Ref) {
+		t.Helper()
+		if l, u := sys.LayerOf(lower), sys.LayerOf(upper); l >= u {
+			t.Errorf("%s in layer %d, %s in layer %d; want %s below", lower.Name(), l, upper.Name(), u, lower.Name())
+		}
+	}
+	below(n.Database, n.Schema)
+	below(n.Schema, n.Server)
+	if t.Failed() {
+		t.Logf("layers:\n%s", sys)
+	}
+}
+
+func TestGraph_StreamsBelowTheJobRoot(t *testing.T) {
+	a := app.New(configtest.Config(t), io.Discard)
+	sys := buildAsRun(t, a)
+	n := a.Nodes()
+
+	for _, r := range []graph.Ref{n.JobJournal, n.WorkQueue, n.Jobs, n.Server} {
+		if !sys.Has(r) {
+			t.Fatalf("%s is not in the System\nlayers:\n%s", r.Name(), sys)
+		}
+	}
+	for _, stream := range []graph.Ref{n.JobJournal, n.WorkQueue} {
+		if l, u := sys.LayerOf(stream), sys.LayerOf(n.Jobs); l >= u {
+			t.Errorf("%s in layer %d, %s in layer %d; want %s below", stream.Name(), l, n.Jobs.Name(), u, stream.Name())
+		}
+	}
+	if t.Failed() {
+		t.Logf("layers:\n%s", sys)
+	}
+}
+
+func domainNodes(n app.Nodes) []graph.Ref {
+	var refs []graph.Ref
+	v := reflect.ValueOf(n)
+	for _, field := range v.Fields() {
+		if strings.Contains(field.Type().String(), "/capstone-bunrei/domain/") {
+			refs = append(refs, field.Interface().(graph.Ref))
+		}
+	}
+	return refs
+}
+
+func TestGraph_DomainAboveTheSchema(t *testing.T) {
+	a := app.New(configtest.Config(t), io.Discard)
+	sys := buildAsRun(t, a)
+	n := a.Nodes()
+
+	domain := domainNodes(n)
+	if len(domain) == 0 {
+		t.Fatal("Nodes holds no domain node")
+	}
+	for _, r := range domain {
+		if !sys.Has(r) {
+			t.Errorf("%s is not in the System", r.Name())
+			continue
+		}
+		if l, u := sys.LayerOf(n.Schema), sys.LayerOf(r); l >= u {
+			t.Errorf("%s in layer %d, %s in layer %d; want %s below", n.Schema.Name(), l, r.Name(), u, n.Schema.Name())
+		}
+	}
+	if t.Failed() {
+		t.Logf("layers:\n%s", sys)
+	}
+}
+
+func TestGraph_SweeperInTheReactorsAboveWhatItUses(t *testing.T) {
+	a := app.New(configtest.Config(t), io.Discard)
+	n := a.Nodes()
+
+	group, err := a.Graph().Build(n.Reactors)
+	if err != nil {
+		t.Fatalf("Build of %s: %v", n.Reactors.Name(), err)
+	}
+	if !group.Has(n.Sweeper) {
+		t.Errorf("a Build of %s does not hold %s; want it a member", n.Reactors.Name(), n.Sweeper.Name())
+	}
+
+	sys := buildAsRun(t, a)
+	for _, lower := range []graph.Ref{n.Database, n.SQL, n.Storage, n.Schema} {
+		if l, u := sys.LayerOf(lower), sys.LayerOf(n.Sweeper); l >= u {
+			t.Errorf("%s in layer %d, %s in layer %d; want %s below", lower.Name(), l, n.Sweeper.Name(), u, lower.Name())
+		}
+	}
+	if t.Failed() {
+		t.Logf("layers:\n%s", sys)
+	}
+}
+
+func TestGraph_SweeperRegistersTheReclaimers(t *testing.T) {
+	a := app.New(configtest.Config(t), io.Discard)
+	sweeper := buildAsRun(t, a).Get(a.Nodes().Sweeper)
+
+	nudge := func(name string) (panicked bool) {
+		defer func() { panicked = recover() != nil }()
+		sweeper.Nudge(name)
+		return false
+	}
+	for _, name := range []string{"index", "outbox", "inbox", "content", "input"} {
+		if nudge(name) {
+			t.Errorf("Nudge(%q) panicked; want %s registered", name, name)
+		}
+	}
+	if !nudge("files") {
+		t.Error(`Nudge("files") did not panic; want a name the sweeper was not built with refused`)
+	}
 }
 
 func rootDrops(a *app.App, roots []graph.Ref) error {
