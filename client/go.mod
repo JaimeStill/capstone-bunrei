@@ -3,7 +3,7 @@ module github.com/JaimeStill/capstone-bunrei/client
 go 1.27.4
 
 require (
-	github.com/standards-lab/docinfer v0.5.0
+	github.com/standards-lab/docinfer v0.6.0
 	github.com/standards-lab/docproc v0.10.0
 )
 
