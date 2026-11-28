@@ -121,14 +121,13 @@ routes, schema and settings stay two-way while no deployment holds data.
 
 ## Progress
 
-slices 7/7 committed · standards ✓ · spec ✓ · editor —
+slices 7/7 committed · standards ✓ · spec ✓ · editor ✓
 - escalation, spec: narrow Behavior 12 to Bunrei's own Commands and Queries (the upload keeps
   go-web-sdk's and the draft's problem types; unmatched routes keep `about:blank`)? yes
 
 ## Decisions
 
 - capstone: contracts (`chunks`, `protocol`, `events`) are designed in `.foundation` at capstone-data-intelligence; Bunrei and Mikoshi build against them, and a task that reads one opens its summary with "Waits on".
-- capstone: Bunrei's `client` module is released by tag (`client/v0.1.0` at `api`); Mikoshi imports the published version, never a replace directive.
 - capstone: items join contexts by reference and a context covers its descendants; chunks and embeddings stay keyed by content and carry no context.
 - metadata-text: Skype conversation records are not rendered (backlog).
 - text-layer: a page's text layer stands in for its vision text when it holds at least the
@@ -162,10 +161,7 @@ slices 7/7 committed · standards ✓ · spec ✓ · editor —
 - messaging-work-queue: a dead letter is the original event on `bunrei.work.dead`, with attempt
   and last-error headers; `jobs`' worker on it appends `failed` and acks each.
 - messaging-work-queue: `jobs` sets `docinfer.Options.Final` from `messaging.Worker.Final`.
-- state: `api` owns Submit, CancelJob, GetJob's route, Submit's idempotency record, and
-  `upload.Store`; `jobs` owns running jobs. GetJob finds no job past BUNREI_JOBS's 30 days.
-- state: the root module builds against `client` through `replace ./client`; `api` adds `Client`
-  and the Commands and tags `client/v0.1.0`.
+- state: `jobs` owns running jobs. GetJob finds no job past BUNREI_JOBS's 30 days.
 - state: `jobs` writes `completed`'s `Manifest` from `Job.Results` plus each attempt's `Done`.
 - state: the job root's callers pass UUID job IDs and set `causationid`; `Append` folds the
   decided event before appending, so one the fold can't apply appends nothing, and retries an
@@ -190,57 +186,37 @@ slices 7/7 committed · standards ✓ · spec ✓ · editor —
 - document-extraction: `job` yields no checkpoint while `Document` is set; Bunrei's `jobs` resumes
   such a job from the start. Rejected carrying text SHA-256s in `Checkpoint`.
 
-- api: `upload.Store` is a PostgreSQL row per upload with chunk objects at
-  `upload/<upload>/<offset>/<append id>`, the key recorded in a chunk row, since go-storage has no
-  conditional write. Rejected BUNREI_UPLOADS: a 4 MiB chunk exceeds NATS's 1 MB message limit.
-- api: Complete stages the file under `input/` and records a completed upload; CompleteUpload
-  queues from it and is idempotent per upload; the handler then deletes the upload; abandoned
-  upload objects are swept at twice the 24-hour lifetime.
-- api: Submit's idempotency record is a PostgreSQL row kept 30 days (BUNREI_JOBS's age); the same
-  ID with a different request is refused 409.
-- api: Submit and CompleteUpload append `queued`, then enqueue `{"job"}` with an ID derived from
-  the job; `jobs` only consumes BUNREI_WORK.
-- api: CancelJob appends `cancelled` itself while the job is `queued`; `jobs`' fencing ends a
-  started job.
-- api: ListProfiles' route and the unknown-profile refusal are `jobs`'; `client/v0.1.0` ships
-  `Client.ListProfiles`.
-- api: problem types are `urn:standards-lab:bunrei:problem:<name>`, exported by `client`, for
-  Bunrei's own Commands and Queries; the upload protocol keeps go-web-sdk's and the draft's types.
-- api: Submit's wire encoding is `client.Submit`'s JSON with base64 content; rejected multipart.
-- api: the 256 KiB extraction cap covers the three extracts together.
-- api: `Client.Upload` returns the upload ID and resumes within its attempts; it doesn't expose
-  go-web-sdk's `Resource`.
+- api: Submit and CompleteUpload enqueue each job on BUNREI_WORK; `jobs` only consumes it.
+- api: CancelJob cancels only a `queued` job; `jobs`' fencing ends a started one.
+- api: ListProfiles is `GET /api/profiles`, a bare JSON array of `client.Profile`; `jobs` serves it.
+- api: the unknown-profile refusal is `jobs`'.
+- api: Bunrei's own Commands and Queries refuse with `client`'s
+  `urn:standards-lab:bunrei:problem:<name>` types; the upload protocol keeps go-web-sdk's and the
+  draft's types, and an unmatched route keeps `about:blank`.
 
 ## Pending edits
 
 - coordinator · `docs/data-intelligence.md`, "Tool packaging": the image holds poppler-utils 22.02
   or later, whose pdfinfo docproc v0.10.0's document stage requires beside pdftotext and pdfdetach,
   and ImageMagick 7.1 or later, whose magick its vision stage requires, as the picture and
-  office stages do. "Open items": `metadata` resolved by docproc v0.10.0.
+  office stages do. "Open items": `metadata` resolved by docproc v0.10.0; `text-layer` resolved;
+  a OneNote picture is an image and uses vision.
 - capstone-data-intelligence · `context/chunks.md`, "Fields" and "Source occurrence": a source's
   text SHA-256 is its `sha256` when present, else its `output`'s; a metadata source may carry the
   record output it renders, whose `sha256` is the record's, not the text's; links move to docinfer
   v0.4.0 and docproc v0.10.0. The change reaches `.mikoshi`'s `ingest`, `contexts` and `lineage`
   tasks and `.bunrei`'s `api` task.
-- coordinator · `docs/data-intelligence.md`, "Open items": `text-layer` resolved. A OneNote
-  picture is an image and uses vision.
-- coordinator · `docs/data-intelligence.md`, "Text layer and vision": cite docs-corpus v0.2.0
-  rather than the retired ~/docs pool. The `text-layer` bullet: resolved by docinfer v0.5.0's
-  layer-word skip, starting at 100 words; correct the claim that two-column layers interleave
-  their columns: the finding shows pdftotext reads column by column, and the misses are words
-  split across columns. The `vision` bullet: resolved by keeping the starting vision prompt and
-  card sampling, since over docs-corpus v0.2.0 only 2 of 1,234 pages with at least 100 layer
-  words come back described, both one unreadable table (docinfer's `docs/acceptance.md`,
-  "Described pages").
-- coordinator · `docs/data-intelligence.md`, "Bunrei", "Models and stages": a profile's vision
-  and transcription prompts in Bunrei's configuration are defaults, and an active override stored
-  at runtime replaces each, per profile and stage.
-- docproc · `context/bunrei.md`, "The profile": a profile holds the vision prompt and sampling,
-  and its vision and transcription prompts are defaults that an active override, stored at
-  runtime, replaces.
+- coordinator · `docs/data-intelligence.md`, "Text layer and vision": cite docs-corpus v0.2.0, not
+  the retired ~/docs pool. The `text-layer` bullet: resolved by docinfer v0.5.0's layer-word skip,
+  starting at 100 words; correct the claim that two-column layers interleave their columns: the
+  finding shows pdftotext reads column by column, and the misses are words split across columns. The
+  `vision` bullet: resolved by keeping the starting vision prompt and card sampling, since over
+  docs-corpus v0.2.0 only 2 of 1,234 pages with at least 100 layer words come back described, both
+  one unreadable table (docinfer's `docs/acceptance.md`, "Described pages").
 - coordinator · `docs/data-intelligence.md`, "docinfer's configuration": add the vision
   layer-word threshold, cmd/docinfer's `vision.layer_words`, starting at 100, to be tuned from
-  the thresholds docinfer's `docs/acceptance.md` measures ("The layer-word threshold").
+  the thresholds docinfer's `docs/acceptance.md` measures ("The layer-word threshold"), and
+  docinfer's `Extraction.WindowRunes`, which Bunrei sets at `jobs`.
 - docs-corpus · `docs/baseline.md`, "v0.2.0": add the runs `docproc-v0.10.0/` (binaries
   `bin-v0.10.0/`) and `docinfer/text-layer/`; link docinfer's
   `docs/acceptance.md#docs-corpus-v020-with-the-text-layer-skip`.
@@ -260,40 +236,47 @@ slices 7/7 committed · standards ✓ · spec ✓ · editor —
   the work-queue package as `messaging.Queue` (its `docs/usage.md`, "The work queue"). "The
   capability ledger": add a row, a work queue of durable jobs with extension, a retry limit,
   backoff, and dead letters, classed Standard as `messaging.Queue`, apart from `Broker`.
-- docproc · `context/bunrei.md`: "A job": the work queue, not the replica, extends a running
+- docproc · `context/bunrei.md`: "The profile": a profile holds the vision prompt and sampling; its
+  vision and transcription prompts are defaults an active runtime override replaces; "the extraction
+  spec" becomes three optional extracts. "A job": the work queue, not the replica, extends a running
   delivery, and `docinfer.Options.Final` comes from `messaging.Worker.Final`. "A dead last
   delivery": closed; the queue dead-letters a delivery past `MaxDeliver` without running its
-  handler, and Bunrei appends `failed` from the dead-letter subject. The stores diagram:
-  BUNREI_WORK also holds the queue's dead-letter subject and the subjects under it. "Requests to
-  go-messaging": v0.4.0's `messaging.Journal` meets "A publish on a subject the caller names" with
-  a guarded append and a bounded read, and v0.5.0's queue meets the in-progress acknowledgement
-  with its own extension of a running delivery.
+  handler, and Bunrei appends `failed` from the dead-letter subject. The stores diagram: BUNREI_WORK
+  also holds the queue's dead-letter subject and the subjects under it. "Requests to go-messaging":
+  v0.4.0's `messaging.Journal` meets "A publish on a subject the caller names" with a guarded append
+  and a bounded read, and v0.5.0's queue meets the in-progress acknowledgement with its own
+  extension of a running delivery.
 - coordinator · roadmap: `state` summary drops "uploads"; `event-stream` takes in-order delivery
   within a group; `jobs` takes following one job's subject for fencing, emptying docproc's working
   directory at startup, ListProfiles, the unknown-profile refusal, cancelling a started job,
   and drops the enqueue.
 - capstone-data-intelligence · `context/protocol.md` "Ownership" and "The client module";
   `context/events.md` "Ownership": `state` creates `client` with the job types; `api` completes and
-  releases it. `client` requires docinfer v0.5.0 and docproc v0.10.0, and its `Version`, `1`, is
-  the wire version `urn:standards-lab:bunrei:client:1` names.
+  releases it. `client` requires docinfer v0.6.0 and docproc v0.10.0, and its `Version`, `1`, is
+  the wire version `urn:standards-lab:bunrei:client:1` names. Its and `upload.md`'s "Ownership":
+  Bunrei's upload store keeps PostgreSQL rows over blob chunk objects.
 - docproc · `context/bunrei.md` "State and subjects": keys are `content/ab/<sha256>` and
-  `input/ab/<sha256>`, as docproc/storage lays them out; the retentions in the next edit; Bunrei's
+  `input/ab/<sha256>`, as docproc/storage lays them out, and an upload's chunks
+  `upload/<upload>/<offset>/<append id>`; PostgreSQL holds Bunrei's upload and submission tables;
+  no BUNREI_UPLOADS; the retentions in the next edit; Bunrei's
   sweep replaces "The host sweeps content by age"; drop "The names and retentions are the `state`
   task's".
 - coordinator · `docs/data-intelligence.md`: "Open items": drop `state`'s question; go-messaging
   v0.5.0's queue dead-letters a job whose last delivery died. "Bunrei", detail "State": BUNREI_JOBS
   keeps 30 days, BUNREI_WORK no max age; `content/` 67 days (renewed after 7), `input/` 30,
-  `upload/` `api`'s; docproc's index 30, outbox and inbox 7; a sweep reactor deletes past each age,
-  reclaiming blobs by prefix, not by a lifecycle rule. "Tool packaging": a deployment
-  supplies the database password and storage key as secrets (Bunrei's README, "Configuration").
+  `upload/` twice the 24-hour upload lifetime; docproc's index 30, outbox and inbox 7; a sweep
+  reactor deletes past each age, reclaiming blobs by prefix, not by a lifecycle rule; no
+  BUNREI_UPLOADS. "API": routes under `/api`; the upload store keeps PostgreSQL rows over blob chunk
+  objects; `client` is released by tag from `client/v0.1.0`. "Models and stages": Bunrei's
+  configured vision and transcription prompts are defaults; an active runtime override replaces
+  each, per profile and stage. "Tool packaging": a deployment supplies the database password and
+  storage key as secrets (Bunrei's README, "Configuration").
 - coordinator · `context/data-intelligence.md` go-messaging asks: append, work queue built
   (v0.4.0, v0.5.0); remaining asks move to `event-stream` and `jobs`.
 - capstone-data-intelligence · `context/protocol.md`, `events.md`, `athena.md`: docinfer v0.6.0
   builds both scopes as `Options.Document` and `Options.Timeline`; Submit, CompleteUpload, and
   `queued` carry all three extracts under the 256 KiB cap; `inference` carries `scope`.
-- docproc · `context/bunrei.md`: "the extraction spec" becomes three optional extracts.
-- coordinator · `docs/data-intelligence.md`: add docinfer's `Extraction.WindowRunes`, which Bunrei
-  sets at `jobs`.
+  `protocol.md`: `api`'s 409s, problem URNs, base64 Submit, upload's problems.
 - coordinator · roadmap backlog entries: picture metadata beyond EXIF (IPTC, maker notes, reverse
   geocoding); rendering Skype conversation records (`MediaMailConversation`: topic, start, end,
   missed) as metadata text; go-ai's default transcription instruction (sent when docinfer's
@@ -302,7 +285,3 @@ slices 7/7 committed · standards ✓ · spec ✓ · editor —
   (JetStream atomic batch publish, once nats.go has a client API); a Postgres `SKIP LOCKED`
   provider of go-messaging's work-queue contract; docinfer cache retention; extraction in
   cmd/docinfer.
-- capstone-data-intelligence · `context/protocol.md`: `api`'s 409s, problem URNs, extract cap,
-  base64 Submit, upload's problems; `client` on docinfer v0.6.0.
-- docproc · `context/bunrei.md`; coordinator · `docs/data-intelligence.md` "State": `api`'s
-  chunk key, `upload/` age; no BUNREI_UPLOADS.

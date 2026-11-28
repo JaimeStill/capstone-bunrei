@@ -126,9 +126,9 @@ not declare fails the load.
 
 ## The client module
 
-Bunrei serves its Commands, Queries, and resumable upload under `/api`. The nested `client`
-module, `github.com/JaimeStill/capstone-bunrei/client`, is that protocol in Go; its
-[package documentation](client/doc.go) lists the whole API and the route each method calls.
+Bunrei serves its Commands, its Queries except ListProfiles (planned), and its resumable upload
+under `/api`. The nested `client` module, `github.com/JaimeStill/capstone-bunrei/client`, is that
+protocol in Go; its [package documentation](client/doc.go) lists every method and its route.
 
 The module is released by tag, `client/v0.1.0` and on, with its own
 [changelog](client/CHANGELOG.md). A caller such as Mikoshi imports the published version:
