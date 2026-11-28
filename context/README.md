@@ -15,7 +15,7 @@ architecture and scope are `standards-lab/context/data-intelligence.md`, and its
 
 - **Protocol and client module** (planned): the `capstone.data-intelligence.bunrei` goal, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
 - **Chunked upload** (planned): the `capstone.data-intelligence.bunrei` goal, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
-- **Jobs and work queue** (planned): the `capstone.data-intelligence.bunrei` goal, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
+- **Jobs and work queue** (planned): jobs will run on go-messaging's work queue, `messaging.Queue`, which go-messaging v0.5.0 and nats/v0.5.0 build; the `capstone.data-intelligence.bunrei` goal, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
 - **Processing profiles** (planned): the `capstone.data-intelligence.bunrei` goal, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
 - **Prompt overrides** (planned): an active override stored at runtime replaces a profile's default vision or transcription prompt; the `capstone.data-intelligence.bunrei` goal's `prompts` task, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.
 - **Event and result-batch stream** (planned): the `capstone.data-intelligence.bunrei` goal, `standards-lab/roadmap/capstone.data-intelligence.bunrei.toml`.

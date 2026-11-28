@@ -11,7 +11,7 @@
 3. [x] text-layer
 4. [x] vision
 5. [x] messaging-append
-6. [ ] messaging-work-queue
+6. [x] messaging-work-queue
 7. [ ] state
 8. [ ] document-extraction
 9. [ ] api
@@ -73,13 +73,36 @@
   original's sequence.
 - messaging-append: Bunrei's gap-free `jobsequence` is a count its own fold derives, not the
   stream sequence `Journal` returns.
-- messaging-append: the journal uses the broker's own stream, so an appended subject is under its
-  `Prefix`, and a separate jobs stream means a second broker.
-- messaging-append: appended events reach the same broker's subscriptions and a type filter
-  matches on the subject, so a type-filtered subscription never receives a job event on the job's
-  own subject.
-- messaging-append: released as go-messaging `v0.4.0` and `nats/v0.4.0`; `messaging-work-queue`
-  builds on them. The postgres sqlate bumps stay under [Unreleased].
+- messaging-work-queue: jobs go through go-messaging's `messaging.Queue`, apart from `Broker`, on
+  a stream of its own with work-queue retention; the contract names nothing from JetStream, and
+  no Postgres provider is built (backlog).
+- messaging-work-queue: a worker runs through `messaging.Runtime.Work`. go-core's reactor detaches
+  a handler from its source's cancellation, so `Runtime.Work` ends the handler's context from
+  `messaging.DeliveryEnd` and `reactor.Draining`; go-core is unchanged.
+- messaging-work-queue: the queue extends a running delivery itself; the handler takes no extend
+  function, and its context ends once no extension has succeeded within `AckWait`. Bunrei's
+  fencing covers the overlap.
+- messaging-work-queue: `AckWait` bounds a delivery between extensions, not a job's length. The
+  NATS queue rejects `AckWait` plus `nats.AckMargin` at or past `messaging.DefaultDuplicates`
+  (2m), so a repeated dead letter is deduplicated; a non-owner bound to a stream with a smaller
+  window isn't protected.
+- messaging-work-queue: the queue enforces `MaxDeliver` itself, and the NATS consumer sets no
+  server delivery limit, so a dead letter whose publish fails is retried on every later delivery.
+  A failed final attempt, an `event.Permanent` error, or a delivery past the limit is
+  dead-lettered, so `state` needs no advisory or sweep. Rejected the server limit at `MaxDeliver`
+  + 1, which strands a job whose dead-letter publish fails on the extra delivery, and the
+  MAX_DELIVERIES advisory, lost when no subscriber listens and lacking the message.
+- messaging-work-queue: a dead letter is the original event, unchanged, with attempt and
+  last-error headers, on a subject inside the queue's own stream; a worker on it (Bunrei
+  appending `failed`) takes each off with an ack.
+- messaging-work-queue: a work-queue stream takes one worker group per subject, so two kinds of
+  work need two queues.
+- messaging-work-queue: on drain, a handler's nil or permanent error settles its job, and any
+  other error leaves the job for redelivery.
+- messaging-work-queue: the final attempt is attempt == `MaxDeliver`, which `Worker.Final` reports;
+  `jobs` sets `docinfer.Options.Final` from it.
+- messaging-work-queue: released as go-messaging `v0.5.0` and `nats/v0.5.0`; `state` builds on
+  them. The postgres sqlate bumps stay under [Unreleased].
 
 ## Pending edits
 
@@ -124,20 +147,35 @@
   `docproc-v0.10.0/`, with its binaries in `bin-v0.10.0/`, and docinfer's text-layer run in
   `docinfer/text-layer/`; link docinfer's
   `docs/acceptance.md#docs-corpus-v020-with-the-text-layer-skip`.
-- coordinator · `context/messaging.md`, "Open", "A stream-backed root": the expected-sequence
-  append and the subject read are built in go-messaging v0.4.0 and nats/v0.4.0 as
-  `messaging.Journal`; only the work-queue package stays planned. Add to "Open": a replicated
-  stream deduplicates an append before checking its expected sequence, so a stale repeat within
-  the window returns the original's sequence, not `ErrConflict`, which `state` relies on.
-  "Assumptions", the outbox bullet: Bunrei appends a job's events through `messaging.Journal`.
-- coordinator · `docs/messaging.md`, "A stream-backed root": drop "Planned."; the append is
-  built as `messaging.Journal` (go-messaging's `docs/usage.md`, "Appending to a stream-backed
-  root"), and the work-queue package stays planned under `messaging-work-queue`.
 - coordinator · `roadmap/capstone.data-intelligence.bunrei.toml`: no task builds the go-messaging
   asks `messaging-append` left out (a durable consumer filtered by subject, in-order delivery
   within a delivery group); the `state` or `event-stream` summary sizes them.
 - coordinator · roadmap: a backlog entry for appending several events atomically (JetStream
   atomic batch publish, once nats.go has a client API).
-- docproc · `context/bunrei.md`, "Requests to go-messaging": go-messaging v0.4.0's
-  `messaging.Journal` meets "A publish on a subject the caller names", with a guarded append and
-  a bounded read.
+- coordinator · `context/messaging.md`: "Open", "A stream-backed root": drop "(planned)";
+  go-messaging builds the append and subject read as `messaging.Journal` (v0.4.0, nats/v0.4.0)
+  and the work-queue package as `messaging.Queue` (v0.5.0, nats/v0.5.0); Bunrei's use stays
+  planned. Retire "A dead-letter stream, deferred until a consumer needs replay": the queue
+  dead-letters onto a subject on its own stream, and replay stays unbuilt. Add to "Open": a
+  replicated stream deduplicates an append before checking its expected sequence, so a stale
+  repeat within the window returns the original's sequence, not `ErrConflict`. "Decisions": a
+  work-queue worker runs through `messaging.Runtime.Work`, since go-core's reactor detaches a
+  handler from its source's cancellation; go-core is unchanged. "Assumptions", the outbox bullet:
+  Bunrei appends a job's events through `messaging.Journal`.
+- coordinator · `docs/messaging.md`, "A stream-backed root": drop "Planned."; go-messaging builds
+  the append as `messaging.Journal` (its `docs/usage.md`, "Appending to a stream-backed root") and
+  the work-queue package as `messaging.Queue` (its `docs/usage.md`, "The work queue"). "The
+  capability ledger": add a row, a work queue of durable jobs with extension, a retry limit,
+  backoff, and dead letters, classed Standard as `messaging.Queue`, apart from `Broker`.
+- coordinator · `docs/data-intelligence.md`, "Open items": drop `state`'s question of how a job
+  whose last delivery died is found and failed; go-messaging v0.5.0's work queue dead-letters it.
+- docproc · `context/bunrei.md`: "A job": the work queue, not the replica, extends a running
+  delivery, and `docinfer.Options.Final` comes from `messaging.Worker.Final`. "A dead last
+  delivery": closed; the queue dead-letters a delivery past `MaxDeliver` without running its
+  handler, and Bunrei appends `failed` from the dead-letter subject. The stores diagram:
+  BUNREI_WORK also holds the queue's dead-letter subject and the subjects under it. "Requests to
+  go-messaging": v0.4.0's `messaging.Journal` meets "A publish on a subject the caller names" with
+  a guarded append and a bounded read, and v0.5.0's queue meets the in-progress acknowledgement
+  with its own extension of a running delivery.
+- coordinator · roadmap: a backlog entry for a Postgres `SKIP LOCKED` work-queue provider that
+  meets go-messaging's work-queue contract and conformance suite.
