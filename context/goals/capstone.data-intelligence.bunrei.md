@@ -1,6 +1,6 @@
 # goal · capstone.data-intelligence.bunrei
 
-- **State:** building
+- **State:** brief ready
 - **Task:** api
 - **Branch:** api
 
