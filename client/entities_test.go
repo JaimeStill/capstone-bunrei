@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/standards-lab/docinfer"
@@ -92,16 +93,43 @@ func TestEntities_RoundTripWithWireMembers(t *testing.T) {
 			name: "Queued",
 			value: &client.Queued{
 				Profile: "standard@1", Name: "invoice.pdf", MediaType: "application/pdf", Size: 2048,
-				SHA256: "0a1b", Extraction: extract(),
+				SHA256: "0a1b", Extract: extract(), Document: extract(), Timeline: extract(),
 			},
-			members: []string{"extraction", "media_type", "name", "profile", "sha256", "size"},
+			members: []string{"document", "extract", "media_type", "name", "profile", "sha256", "size", "timeline"},
 		},
 		{
-			name: "Queued without extraction",
+			name: "Queued without extracts",
 			value: &client.Queued{
 				Profile: "standard@1", Name: "notes.txt", MediaType: "text/plain", Size: 12, SHA256: "2c3d",
 			},
 			members: []string{"media_type", "name", "profile", "sha256", "size"},
+		},
+		{
+			name: "Submit",
+			value: &client.Submit{
+				ID: "retry-1", Profile: "standard@1", Name: "invoice.pdf", MediaType: "application/pdf",
+				Content: []byte("%PDF-1.7"), Extract: extract(), Document: extract(), Timeline: extract(),
+			},
+			members: []string{"content", "document", "extract", "id", "media_type", "name", "profile", "timeline"},
+		},
+		{
+			name: "Submit without extracts",
+			value: &client.Submit{
+				ID: "retry-1", Profile: "standard@1", Name: "notes.txt", MediaType: "text/plain", Content: []byte("notes"),
+			},
+			members: []string{"content", "id", "media_type", "name", "profile"},
+		},
+		{
+			name: "CompleteUpload",
+			value: &client.CompleteUpload{
+				Upload: "u1", Profile: "standard@1", Extract: extract(), Document: extract(), Timeline: extract(),
+			},
+			members: []string{"document", "extract", "profile", "timeline", "upload"},
+		},
+		{
+			name:    "CompleteUpload without extracts",
+			value:   &client.CompleteUpload{Upload: "u1", Profile: "standard@1"},
+			members: []string{"profile", "upload"},
 		},
 		{
 			name:    "Started",
@@ -150,20 +178,49 @@ func TestEntities_RoundTripWithWireMembers(t *testing.T) {
 	}
 }
 
-func TestQueued_ExtractionSchemaIsJSON(t *testing.T) {
-	data, err := json.Marshal(client.Queued{Extraction: extract()})
+func TestQueued_ExtractSchemasAreJSON(t *testing.T) {
+	data, err := json.Marshal(client.Queued{Extract: extract(), Document: extract(), Timeline: extract()})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var wire map[string]json.RawMessage
+	if err := json.Unmarshal(data, &wire); err != nil {
+		t.Fatalf("Unmarshal: %v; JSON %s", err, data)
+	}
+	for _, member := range []string{"extract", "document", "timeline"} {
+		var x struct {
+			Schema map[string]any `json:"schema"`
+		}
+		if err := json.Unmarshal(wire[member], &x); err != nil || x.Schema["type"] != "object" {
+			t.Errorf("%s.schema = %v (%v), want the schema object; JSON %s", member, x.Schema, err, data)
+		}
+	}
+}
+
+func TestSubmit_ContentIsBase64(t *testing.T) {
+	data, err := json.Marshal(client.Submit{Content: []byte{0xff, 0x00, 0x7f}})
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
 	var wire struct {
-		Extraction struct {
-			Schema map[string]any `json:"schema"`
-		} `json:"extraction"`
+		Content string `json:"content"`
 	}
 	if err := json.Unmarshal(data, &wire); err != nil {
 		t.Fatalf("Unmarshal: %v; JSON %s", err, data)
 	}
-	if wire.Extraction.Schema["type"] != "object" {
-		t.Errorf("extraction.schema = %v, want the schema object; JSON %s", wire.Extraction.Schema, data)
+	if wire.Content != "/wB/" {
+		t.Errorf("content = %q, want the bytes in standard base64, %q", wire.Content, "/wB/")
+	}
+}
+
+func TestProblems_TypesArePrefixedNames(t *testing.T) {
+	for _, typ := range []string{
+		client.ProblemInvalidRequest, client.ProblemContentTooLarge,
+		client.ProblemExtractionTooLarge, client.ProblemSubmitConflict,
+	} {
+		name, ok := strings.CutPrefix(typ, "urn:standards-lab:bunrei:problem:")
+		if !ok || name == "" || strings.ContainsAny(name, ": ") {
+			t.Errorf("problem type %q, want urn:standards-lab:bunrei:problem:<name>", typ)
+		}
 	}
 }

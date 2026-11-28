@@ -28,9 +28,8 @@
 // and cannot fail. [App.Graph] and [App.Nodes] publish the graph and its
 // handles, so a caller can Observe or Replace a node before Run. [App.Run]
 // is the hot start plus shutdown: it runs a go-web-sdk web.Service, which
-// builds [App.Roots], the server, the reactors group, the schema, the
-// content and input stores, the job root, and the work queue, plus the
-// lifecycle config node, hands the System to go-core's lifecycle
+// builds [App.Roots], the server, the reactors group, the schema, and the
+// content store, plus the lifecycle config node, hands the System to go-core's lifecycle
 // Coordinator, and returns the process exit code. A constructor's error
 // fails the Build, and Run writes "service failed: " and the error, which
 // names the failing node, to the stderr it is given; a wiring mistake
@@ -73,17 +72,17 @@
 // Content under its prefix from the objects block with the block's renew
 // age: docproc's content store, and the store of each job's staged input by
 // its declared SHA-256. The content and the input own nothing and never
-// run, so neither is a lifecycle participant; each is one of [App.Roots]
-// until a domain node Uses it, so both are built, and a wiring mistake in
-// either fails at startup. The job journal is go-messaging's NATS broker
+// run, so neither is a lifecycle participant; the submissions node Uses the
+// input, and the content is one of [App.Roots] until a domain node Uses
+// it, so both are built, and a wiring mistake in either fails at startup. The job journal is go-messaging's NATS broker
 // over the nats block, the owner of the BUNREI_JOBS stream, which captures
 // the block's prefix, bunrei.job.> by default, and holds each job's events
 // on its subject, the prefix, a dot, and the job's ID; the work queue is go-messaging's NATS work queue over
 // the nats_queue block, the owner of the BUNREI_WORK work-queue stream,
 // which holds the jobs on bunrei.work and their dead letters on
 // bunrei.work.dead. Each provisions its stream on file storage at Start,
-// with the block's max age, and joins the readiness probe. No worker runs
-// on the work queue yet, so it is one of [App.Roots] until a node Uses it.
+// with the block's max age, and joins the readiness probe. The submissions
+// node enqueues on the work queue; no worker runs on it yet.
 // An auth client joins as the service grows, its own node, with any order
 // it needs declared on its Define line. A service whose value implements
 // lifecycle.Subsystem takes part in startup and shutdown through its own
@@ -118,18 +117,23 @@
 // handed the nats block's prefix as the prefix of its subjects. It orders
 // itself after the work queue and the schema too, so the domain layer
 // starts after all of its infrastructure and after the migrations; every
-// domain node orders itself after the schema. It mounts no routes, so it is one of
-// [App.Roots] until a route or reactor Uses it. The uploads node is
-// domain/uploads's Service, go-web-sdk's upload.Store over the sql and
-// the storage, its chunks under the objects block's upload prefix; it
-// mounts no routes yet, and the sweeper Uses it for its reclaimer. A package that does own a
+// domain node orders itself after the schema. It mounts no routes; the
+// submissions node Uses it. The uploads node is domain/uploads's Service,
+// go-web-sdk's upload.Store over the sql and the storage, its chunks under
+// the objects block's upload prefix; it mounts no routes yet, and the
+// sweeper Uses it for its reclaimer. The submissions node is
+// domain/submissions's Service, Submit, over the sql, the input, the job
+// root, and the work queue, handed the submissions block's small-document
+// limit and retention; it mounts /api/jobs, and the sweeper Uses it for
+// its reclaimer. A package that does own a
 // resource and run belongs in the infrastructure layer, if it is built once
 // at startup, or the reactors layer, if it reacts to an external occurrence
 // for the life of the process. Each domain layer's route group mounts into
 // the /api group, its handler handed, at the construction site, its
 // service, its policy from the config node (cfg.Reads.Limits() for a
 // collection read), and the logger for its error writer
-// (web.NewErrorWriter(logger, ...)). The /api group ships empty.
+// (web.NewErrorWriter(logger, ...)); a route that moves a large body is
+// handed the server block's Transfer for its deadlines.
 //
 // A reactor runs for the process lifetime, driven by an occurrence (a
 // subscription, an interval, a wake on demand) rather than a caller, the
@@ -150,16 +154,18 @@
 // failure.
 //
 // The sweeper is the service's one reactor: go-database's sweep.Sweeper,
-// its interval and pass budget from the sweep block, over seven
+// its interval and pass budget from the sweep block, over eight
 // reclaimers, each under its own advisory lock: index, docproc's index
 // retention at the block's index_age; outbox and inbox, go-messaging's
 // retention of the published outbox rows and the handled inbox rows at
 // outbox_age and inbox_age; content and input, an expiry.Reclaimer over
 // the storage for each of the objects block's content and input
 // prefixes, at content_age and input_age; uploads, the uploads node's
-// reclaimer of the expired uploads' rows; and upload objects, an
+// reclaimer of the expired uploads' rows; upload objects, an
 // expiry.Reclaimer over the upload prefix at twice the uploads block's
-// lifetime. It Uses the sql, the storage, and the uploads node and
+// lifetime; and submissions, the submissions node's reclaimer of the
+// expired submission records. It Uses the sql, the storage, and the
+// uploads and submissions nodes and
 // orders itself after the schema, so its first pass finds the migrated
 // tables and a started store.
 //

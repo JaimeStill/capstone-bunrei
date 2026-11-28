@@ -17,6 +17,7 @@ import (
 	"github.com/standards-lab/sqlate"
 
 	"github.com/JaimeStill/capstone-bunrei/domain/jobs"
+	"github.com/JaimeStill/capstone-bunrei/domain/submissions"
 	"github.com/JaimeStill/capstone-bunrei/domain/uploads"
 	"github.com/JaimeStill/capstone-bunrei/internal/config"
 )
@@ -43,13 +44,13 @@ type Nodes struct {
 	Writer *graph.Node[io.Writer]
 
 	// Infrastructure (infrastructure.go). SQL is the sqlate session over
-	// the database's pool, which the schema and the sweeper share. Content
-	// is docproc's content store and Input the store of each job's staged
-	// input, both over the storage node; each is one of [App.Roots] until a
-	// domain node Uses it, so a wiring mistake in either fails the Build.
-	// JobJournal is the NATS broker that owns the BUNREI_JOBS stream, and
-	// WorkQueue the NATS work queue that owns the BUNREI_WORK stream; the
-	// work queue is one of [App.Roots] until a node Uses it.
+	// the database's pool, which the schema, the domain stores, and the
+	// sweeper share. Content is docproc's content store and Input the store
+	// of each job's staged input, both over the storage node; the content
+	// store is one of [App.Roots] until a domain node Uses it, so a wiring
+	// mistake in it fails the Build. JobJournal is the NATS broker that owns
+	// the BUNREI_JOBS stream, and WorkQueue the NATS work queue that owns
+	// the BUNREI_WORK stream.
 	LifecycleConfig *graph.Node[lifecycle.Config]
 	Logger          *graph.Node[*slog.Logger]
 	Database        *graph.Node[*database.DB]
@@ -65,13 +66,14 @@ type Nodes struct {
 	// is current before the service takes a request.
 	Schema *graph.Node[*admin.Service]
 
-	// Domain (domain.go): the job root over the job journal, and the
-	// uploads store over the sql and the storage, each ordered after the
-	// schema as every domain node is. Neither mounts routes: the job root
-	// is one of [App.Roots] until a route or reactor Uses it, and the
-	// sweeper Uses the uploads store for its reclaimer.
-	Jobs    *graph.Node[*jobs.Service]
-	Uploads *graph.Node[*uploads.Service]
+	// Domain (domain.go): the job root over the job journal; the uploads
+	// store over the sql and the storage; and Submit over the sql, the
+	// input, the job root, and the work queue, each ordered after the
+	// schema as every domain node is. Submit mounts its routes, and the
+	// sweeper Uses the uploads store and Submit for their reclaimers.
+	Jobs        *graph.Node[*jobs.Service]
+	Uploads     *graph.Node[*uploads.Service]
+	Submissions *graph.Node[*submissions.Service]
 
 	// Reactors (reactors.go): the group each reactor joins with graph.In.
 	// A reactor is reached by no Use, so the group is one of [App.Roots],
@@ -79,8 +81,8 @@ type Nodes struct {
 	// Sweeper is go-database's sweeper over the service's reclaimers:
 	// docproc's index retention, go-messaging's outbox and inbox
 	// retention, the expiry of the content and input prefixes, the uploads
-	// store's reclaimer of expired uploads, and the expiry of the upload
-	// prefix. It
+	// store's reclaimer of expired uploads, the expiry of the upload
+	// prefix, and Submit's reclaimer of expired submission records. It
 	// orders itself after the schema, so its passes find the tables the
 	// migrations create.
 	Reactors *graph.Group
@@ -122,15 +124,15 @@ func (a *App) Nodes() Nodes { return a.nodes }
 
 // Roots returns the service's root set, the nodes a Build of the whole
 // service starts from: the server, which reaches the router, the readiness,
-// the logger, the writer node, and the config node through its Uses and
-// theirs; the reactors group, whose members no Use reaches; the schema,
-// which reaches the database; the content and input stores, which reach the
-// storage; the job root, which reaches the job journal; and the work queue.
+// the logger, the writer node, the config node, and through the routes the
+// domain nodes and the infrastructure they Use; the reactors group, whose
+// members no Use reaches; the schema, which reaches the database; and the
+// content store, which reaches the storage.
 // [App.Run] builds this set plus the lifecycle config node the Coordinator
 // is configured from.
 func (a *App) Roots() []graph.Ref {
 	n := a.nodes
-	return []graph.Ref{n.Server, n.Reactors, n.Schema, n.Content, n.Input, n.Jobs, n.WorkQueue}
+	return []graph.Ref{n.Server, n.Reactors, n.Schema, n.Content}
 }
 
 // Run runs the service as a web.Service over [App.Roots] until ctx ends,

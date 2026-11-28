@@ -18,23 +18,25 @@ const envPrefix = "bunrei"
 // (the log, the server, the database connection, the storage connection, the
 // BUNREI_JOBS stream's NATS broker, and the BUNREI_WORK stream's NATS work
 // queue) plus the service-owned read policy, object layout, upload policy,
-// and sweep policy. It embeds the lifecycle Coordinator's configuration by value and
-// untagged, so its shutdown_timeout is a top-level key and ShutdownTimeout
-// a promoted field; Config.Config is that lifecycle block, the one the
-// composition root hands the Coordinator.
+// submission policy, and sweep policy. It embeds the lifecycle
+// Coordinator's configuration by value and untagged, so its
+// shutdown_timeout is a top-level key and ShutdownTimeout a promoted field;
+// Config.Config is that lifecycle block, the one the composition root hands
+// the Coordinator.
 type Config struct {
 	lifecycle.Config
 
-	Log       logging.Config   `json:"log"`
-	Server    web.Config       `json:"server"`
-	Database  database.Config  `json:"database"`
-	Storage   storage.Config   `json:"storage"`
-	NATS      nats.Config      `json:"nats"`
-	NATSQueue nats.QueueConfig `json:"nats_queue"`
-	Objects   ObjectsConfig    `json:"objects"`
-	Reads     ReadsConfig      `json:"reads"`
-	Uploads   UploadsConfig    `json:"uploads"`
-	Sweep     SweepConfig      `json:"sweep"`
+	Log         logging.Config    `json:"log"`
+	Server      web.Config        `json:"server"`
+	Database    database.Config   `json:"database"`
+	Storage     storage.Config    `json:"storage"`
+	NATS        nats.Config       `json:"nats"`
+	NATSQueue   nats.QueueConfig  `json:"nats_queue"`
+	Objects     ObjectsConfig     `json:"objects"`
+	Reads       ReadsConfig       `json:"reads"`
+	Uploads     UploadsConfig     `json:"uploads"`
+	Submissions SubmissionsConfig `json:"submissions"`
+	Sweep       SweepConfig       `json:"sweep"`
 }
 
 // Merge overlays src's set fields onto the receiver, delegating each block
@@ -53,6 +55,7 @@ func (c *Config) Merge(src *Config) {
 	c.Objects.Merge(&src.Objects)
 	c.Reads.Merge(&src.Reads)
 	c.Uploads.Merge(&src.Uploads)
+	c.Submissions.Merge(&src.Submissions)
 	c.Sweep.Merge(&src.Sweep)
 }
 
@@ -99,6 +102,9 @@ func (c *Config) Finalize(envPrefix string) error {
 	}
 	if err := c.Uploads.Finalize(envPrefix); err != nil {
 		return fmt.Errorf("uploads: %w", err)
+	}
+	if err := c.Submissions.Finalize(envPrefix); err != nil {
+		return fmt.Errorf("submissions: %w", err)
 	}
 	if err := c.Sweep.Finalize(envPrefix); err != nil {
 		return fmt.Errorf("sweep: %w", err)

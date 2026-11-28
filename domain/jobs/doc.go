@@ -24,5 +24,6 @@
 //     and the job folded with it.
 //   - TypeQueued and the other Type constants: the job's 13 event types; ExtCausation and the
 //     other Ext constants: its extension attributes; the Layer constants and [Source].
+//   - [TypeWork] and [Work]: the event that puts a job on the work queue, and its data.
 //   - [ErrNotFound], [ErrInvalidID], [ErrUnknownType], and [ErrEnded].
 package jobs

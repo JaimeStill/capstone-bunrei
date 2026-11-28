@@ -678,3 +678,89 @@ func TestUploads_FinalizeRejectsInvalidLifetime(t *testing.T) {
 		})
 	}
 }
+
+func TestSubmissions_FinalizeDefaults(t *testing.T) {
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize(""); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	s := cfg.Submissions
+	if got := *s.DocumentLimit; got != 4<<20 {
+		t.Errorf("Submissions.DocumentLimit = %d, want 4 MiB", got)
+	}
+	if got := s.Retention.Duration(); got != 30*24*time.Hour {
+		t.Errorf("Submissions.Retention = %s, want 720h", got)
+	}
+	if s.Env != (config.SubmissionsEnv{}) {
+		t.Errorf("Submissions.Env = %+v, want empty under the empty prefix", s.Env)
+	}
+}
+
+func TestSubmissions_MergeOverlaysSetFields(t *testing.T) {
+	base := &config.Config{}
+	base.Submissions.DocumentLimit = new(int64(1024))
+	base.Submissions.Retention = new(libconfig.Duration(time.Hour))
+
+	base.Merge(&config.Config{})
+	if got := *base.Submissions.DocumentLimit; got != 1024 {
+		t.Errorf("Submissions.DocumentLimit = %d, want the base's 1024 under an empty overlay", got)
+	}
+
+	overlay := &config.Config{}
+	overlay.Submissions.DocumentLimit = new(int64(2048))
+	overlay.Submissions.Retention = new(libconfig.Duration(2 * time.Hour))
+	base.Merge(overlay)
+	if got := *base.Submissions.DocumentLimit; got != 2048 {
+		t.Errorf("Submissions.DocumentLimit = %d, want the overlay's 2048", got)
+	}
+	if got := base.Submissions.Retention.Duration(); got != 2*time.Hour {
+		t.Errorf("Submissions.Retention = %s, want the overlay's 2h", got)
+	}
+}
+
+func TestSubmissions_FinalizeEnvOverrides(t *testing.T) {
+	t.Setenv("BUNREI_SUBMISSIONS_DOCUMENT_LIMIT", "1048576")
+	t.Setenv("BUNREI_SUBMISSIONS_RETENTION", "48h")
+
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize("bunrei"); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	s := cfg.Submissions
+	if got := *s.DocumentLimit; got != 1<<20 {
+		t.Errorf("Submissions.DocumentLimit = %d, want 1 MiB from BUNREI_SUBMISSIONS_DOCUMENT_LIMIT", got)
+	}
+	if got := s.Retention.Duration(); got != 48*time.Hour {
+		t.Errorf("Submissions.Retention = %s, want 48h from BUNREI_SUBMISSIONS_RETENTION", got)
+	}
+	want := config.SubmissionsEnv{DocumentLimit: "BUNREI_SUBMISSIONS_DOCUMENT_LIMIT", Retention: "BUNREI_SUBMISSIONS_RETENTION"}
+	if s.Env != want {
+		t.Errorf("Submissions.Env = %+v, want %+v", s.Env, want)
+	}
+}
+
+func TestSubmissions_FinalizeRejectsInvalidPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name, value, want string
+	}{
+		{"BUNREI_SUBMISSIONS_DOCUMENT_LIMIT", "0", "document_limit"},
+		{"BUNREI_SUBMISSIONS_DOCUMENT_LIMIT", "-1", "document_limit"},
+		{"BUNREI_SUBMISSIONS_DOCUMENT_LIMIT", "4MiB", "BUNREI_SUBMISSIONS_DOCUMENT_LIMIT"},
+		{"BUNREI_SUBMISSIONS_RETENTION", "0s", "retention"},
+		{"BUNREI_SUBMISSIONS_RETENTION", "monthly", "BUNREI_SUBMISSIONS_RETENTION"},
+	} {
+		t.Run(tc.name+"="+tc.value, func(t *testing.T) {
+			t.Setenv(tc.name, tc.value)
+
+			err := configtest.Minimal().Finalize("bunrei")
+			if err == nil {
+				t.Fatal("Finalize accepted an invalid submissions policy")
+			}
+			if !strings.Contains(err.Error(), "submissions:") || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %v, want the submissions block wrap naming %s", err, tc.want)
+			}
+		})
+	}
+}

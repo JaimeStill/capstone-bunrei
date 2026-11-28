@@ -64,6 +64,10 @@
   "uploads": {
     "lifetime": "24h"
   },
+  "submissions": {
+    "document_limit": 4194304,
+    "retention": "720h"
+  },
   "sweep": {
     "interval": "30s",
     "batch": 100,

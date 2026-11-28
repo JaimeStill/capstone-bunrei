@@ -8,6 +8,7 @@
 //     default history table.
 //
 // The set holds the upload table, one row per resumable upload in
-// progress, and the upload_chunk table, one row per committed chunk
-// naming the object that holds its bytes.
+// progress; the upload_chunk table, one row per committed chunk naming the
+// object that holds its bytes; and the submission table, one idempotency
+// record per Submit ID naming the job it queued.
 package schema
