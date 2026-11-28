@@ -24,8 +24,9 @@ type handler struct {
 // write deadline is extended as it flows: before each 64 KiB or less of it is written, transfer,
 // built for that window, sets the deadline to its grace plus that piece's time at its rate, so a
 // download that keeps up the rate is never cut off and one that stalls is. logger records the
-// cause of every 5xx the group's error writer sends. A refusal is a problem whose type is one of client's Problem constants:
-// ErrInvalid, [client.ProblemInvalidRequest]; and ErrNotFound, [client.ProblemOutputNotFound].
+// cause of every 5xx the group's error writer sends. A refusal is a problem whose type is one of
+// client's Problem constants: ErrInvalid, [client.ProblemInvalidRequest]; and ErrNotFound,
+// [client.ProblemOutputNotFound].
 func Routes(service *Service, transfer func(limit int64) web.Transfer, logger *slog.Logger) *web.Group {
 	h := &handler{service: service, transfer: transfer(window)}
 	ew := web.NewErrorWriter(logger, status)
@@ -73,11 +74,17 @@ func (p *pacedWriter) Write(b []byte) (int, error) {
 func (p *pacedWriter) Unwrap() http.ResponseWriter { return p.ResponseWriter }
 
 func status(err error) (web.Problem, bool) {
-	switch {
-	case errors.Is(err, ErrInvalid):
-		return web.Problem{Type: client.ProblemInvalidRequest, Status: http.StatusBadRequest}, true
-	case errors.Is(err, ErrNotFound):
-		return web.Problem{Type: client.ProblemOutputNotFound, Status: http.StatusNotFound}, true
+	for _, p := range []struct {
+		err    error
+		typ    string
+		status int
+	}{
+		{ErrInvalid, client.ProblemInvalidRequest, http.StatusBadRequest},
+		{ErrNotFound, client.ProblemOutputNotFound, http.StatusNotFound},
+	} {
+		if errors.Is(err, p.err) {
+			return web.Problem{Type: p.typ, Status: p.status}, true
+		}
 	}
 	return web.Problem{}, false
 }

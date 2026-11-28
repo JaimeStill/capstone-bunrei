@@ -64,13 +64,7 @@ func (h *handler) submit(w http.ResponseWriter, r *http.Request) error {
 	if err := h.transfer.WidenUpload(w, r); err != nil {
 		return err
 	}
-	req, err := web.DecodeJSON[client.Submit](w, r, h.transfer.Limit())
-	if be, ok := errors.AsType[*web.BodyError](err); ok {
-		if be.TooLarge {
-			return fmt.Errorf("%w: the body %s", ErrContentTooLarge, be.Reason)
-		}
-		return fmt.Errorf("%w: %s", ErrInvalid, be.Error())
-	}
+	req, err := decode[client.Submit](w, r, h.transfer.Limit())
 	if err != nil {
 		return err
 	}
@@ -86,13 +80,7 @@ func (h *handler) completeUpload(w http.ResponseWriter, r *http.Request) error {
 	if err := h.transfer.WidenUpload(w, r); err != nil {
 		return err
 	}
-	req, err := web.DecodeJSON[client.CompleteUpload](w, r, h.transfer.Limit())
-	if be, ok := errors.AsType[*web.BodyError](err); ok {
-		if be.TooLarge {
-			return fmt.Errorf("%w: the body %s", ErrContentTooLarge, be.Reason)
-		}
-		return fmt.Errorf("%w: %s", ErrInvalid, be.Error())
-	}
+	req, err := decode[client.CompleteUpload](w, r, h.transfer.Limit())
 	if err != nil {
 		return err
 	}
@@ -107,6 +95,17 @@ func (h *handler) completeUpload(w http.ResponseWriter, r *http.Request) error {
 	}
 	w.Header().Set("Location", path.Join(path.Dir(path.Dir(path.Dir(r.URL.Path))), "jobs", j.ID))
 	return web.WriteJSON(w, http.StatusAccepted, j)
+}
+
+func decode[T any](w http.ResponseWriter, r *http.Request, limit int64) (T, error) {
+	req, err := web.DecodeJSON[T](w, r, limit)
+	if be, ok := errors.AsType[*web.BodyError](err); ok {
+		if be.TooLarge {
+			return req, fmt.Errorf("%w: the body %s", ErrContentTooLarge, be.Reason)
+		}
+		return req, fmt.Errorf("%w: %s", ErrInvalid, be.Error())
+	}
+	return req, err
 }
 
 func status(err error) (web.Problem, bool) {
