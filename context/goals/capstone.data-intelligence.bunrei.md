@@ -68,8 +68,8 @@ Bunrei's blob storage, and releases the `client` module as `client/v0.1.0`.
 11. **Retention.** The sweeper reclaims expired uploads and their chunk rows, `upload/` objects
     at twice the upload lifetime, completed uploads past the lifetime, and submissions past their
     age.
-12. **Problems.** Every refusal is an RFC 9457 problem whose type is
-    `urn:standards-lab:bunrei:problem:<name>`, the names exported by the `client` module.
+12. **Problems.** Every refusal by Bunrei's Commands and Queries is an RFC 9457 problem whose
+    type is `urn:standards-lab:bunrei:problem:<name>`, the names exported by the `client` module.
 13. **The `client` module.** It holds `Client`, built over a base URL and an `http.Client`, with
     one method per Command and Query (Submit, CompleteUpload, CancelJob, GetJob, GetOutput,
     ListProfiles), each taking a `context.Context` and returning a refusal as an error carrying
@@ -121,7 +121,9 @@ routes, schema and settings stay two-way while no deployment holds data.
 
 ## Progress
 
-slices 7/7 committed · standards ✓ · spec — · editor —
+slices 7/7 committed · standards ✓ · spec gaps 1 closed, 1 escalated · editor —
+- escalation, spec: narrow Behavior 12 to Bunrei's own Commands and Queries (the upload keeps
+  go-web-sdk's and the draft's problem types; unmatched routes keep `about:blank`)? yes
 
 ## Decisions
 
@@ -202,7 +204,8 @@ slices 7/7 committed · standards ✓ · spec — · editor —
   started job.
 - api: ListProfiles' route and the unknown-profile refusal are `jobs`'; `client/v0.1.0` ships
   `Client.ListProfiles`.
-- api: problem types are `urn:standards-lab:bunrei:problem:<name>`, exported by `client`.
+- api: problem types are `urn:standards-lab:bunrei:problem:<name>`, exported by `client`, for
+  Bunrei's own Commands and Queries; the upload protocol keeps go-web-sdk's and the draft's types.
 - api: Submit's wire encoding is `client.Submit`'s JSON with base64 content; rejected multipart.
 - api: the 256 KiB extraction cap covers the three extracts together.
 - api: `Client.Upload` returns the upload ID and resumes within its attempts; it doesn't expose
@@ -283,12 +286,12 @@ slices 7/7 committed · standards ✓ · spec — · editor —
   `upload/` `api`'s; docproc's index 30, outbox and inbox 7; a sweep reactor deletes past each age,
   reclaiming blobs by prefix, not by a lifecycle rule. "Tool packaging": a deployment
   supplies the database password and storage key as secrets (Bunrei's README, "Configuration").
-- coordinator · `context/data-intelligence.md` go-messaging asks: append and work queue built
+- coordinator · `context/data-intelligence.md` go-messaging asks: append, work queue built
   (v0.4.0, v0.5.0); remaining asks move to `event-stream` and `jobs`.
 - capstone-data-intelligence · `context/protocol.md`, `events.md`, `athena.md`: docinfer v0.6.0
   builds both scopes as `Options.Document` and `Options.Timeline`; Submit, CompleteUpload, and
   `queued` carry all three extracts under the 256 KiB cap; `inference` carries `scope`.
-- docproc · `context/bunrei.md`: "the extraction spec" becomes the three optional extracts.
+- docproc · `context/bunrei.md`: "the extraction spec" becomes three optional extracts.
 - coordinator · `docs/data-intelligence.md`: add docinfer's `Extraction.WindowRunes`, which Bunrei
   sets at `jobs`.
 - coordinator · roadmap backlog entries: picture metadata beyond EXIF (IPTC, maker notes, reverse
@@ -300,6 +303,6 @@ slices 7/7 committed · standards ✓ · spec — · editor —
   provider of go-messaging's work-queue contract; docinfer cache retention; extraction in
   cmd/docinfer.
 - capstone-data-intelligence · `context/protocol.md`: `api`'s 409s, problem URNs, extract cap,
-  base64 Submit; `client` requires docinfer v0.6.0.
+  base64 Submit, upload's problems; `client` on docinfer v0.6.0.
 - docproc · `context/bunrei.md`; coordinator · `docs/data-intelligence.md` "State": `api`'s
   chunk key, `upload/` age; no BUNREI_UPLOADS.
