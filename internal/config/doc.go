@@ -6,11 +6,12 @@
 //     go-messaging's NATS broker and work-queue blocks, nats and
 //     nats_queue, each owning its stream and requiring its stream name and
 //     subjects), the
-//     service-owned object layout and read policy, and the shutdown timeout. The timeout
+//     service-owned object layout, read policy, and sweep policy, and the shutdown timeout. The timeout
 //     comes from go-core's lifecycle.Config, embedded by value and untagged,
 //     so shutdown_timeout is a top-level key, and Config.Config is the block
 //     the composition root hands the lifecycle Coordinator. Its Merge and
-//     Finalize delegate to each block's own.
+//     Finalize delegate to each block's own, and its Finalize checks the
+//     sweep's object ages against the objects block's renew age.
 //   - [ObjectsConfig] is the service-owned object layout, with its own Merge
 //     and Finalize: the content and input prefixes in the storage container
 //     and their shared renew age. [ObjectsEnv] records the
@@ -19,6 +20,11 @@
 //     Finalize; its Limits method hands the policy to a handler as
 //     web.Limits. [ReadsEnv] records the environment-variable names its
 //     Finalize read.
+//   - [SweepConfig] is the service-owned sweep policy, with its own Merge
+//     and Finalize: the sweeper's interval and pass budget, and the age of
+//     each reclaimer, the outbox, the inbox, docproc's index, and the
+//     content and input prefixes. [SweepEnv] records the
+//     environment-variable names its Finalize read.
 //   - [Load] reads the layered files, decoding each strictly, and finalizes
 //     the result under the service's env prefix.
 //

@@ -63,8 +63,9 @@
 // The infrastructure layer holds the lifecycle config the Coordinator is
 // configured from and the services the application is composed on, read
 // from the config node: the logger, written to the writer node, and the
-// database, go-database's PostgreSQL pool over the database block; the
-// storage, go-storage's Store over its s3 provider and the storage block,
+// database, go-database's PostgreSQL pool over the database block, and
+// the sql, the sqlate session over that pool with the PostgreSQL dialect,
+// which the schema and the sweeper share; the storage, go-storage's Store over its s3 provider and the storage block,
 // whose Start ensures the bucket, which the stack never creates, and whose
 // Ready joins the readiness probe; and, over the storage, the content and
 // the input, each a docproc/storage Content under its prefix from the
@@ -138,7 +139,18 @@
 // context ends. The Coordinator infers from the value's methods that the
 // reactor starts with its layer, drains before the nodes it uses, joins
 // the readiness probe under its node's name, and ends the run on its
-// failure. The template defines none.
+// failure.
+//
+// The sweeper is the service's one reactor: go-database's sweep.Sweeper,
+// its interval and pass budget from the sweep block, over five
+// reclaimers, each under its own advisory lock: index, docproc's index
+// retention at the block's index_age; outbox and inbox, go-messaging's
+// retention of the published outbox rows and the handled inbox rows at
+// outbox_age and inbox_age; and content and input, an expiry.Reclaimer
+// over the storage for each of the objects block's prefixes, at
+// content_age and input_age. It Uses the sql and the storage and orders
+// itself after the schema, so its first pass finds the migrated tables
+// and a started store.
 //
 // The request edge's readiness is a fresh node, so each Build's starts
 // unbound, ready for the Coordinator that Build's System is handed to. The

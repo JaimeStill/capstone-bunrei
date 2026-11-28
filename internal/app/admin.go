@@ -9,9 +9,7 @@ import (
 	"github.com/standards-lab/go-database/admin"
 	msgpg "github.com/standards-lab/go-messaging/postgres"
 	"github.com/standards-lab/go-web-sdk"
-	"github.com/standards-lab/sqlate"
 	"github.com/standards-lab/sqlate/migrate"
-	pgdialect "github.com/standards-lab/sqlate/postgres"
 	"github.com/standards-lab/sqlate/query"
 )
 
@@ -39,7 +37,7 @@ func (n *Nodes) newSchema(s *graph.Scope) (*admin.Service, error) {
 		sets = append(sets, set)
 	}
 
-	session := sqlate.Wrap(pool.Conn(), pgdialect.Dialect{})
+	session := s.Use(n.SQL)
 	migrator, err := migrate.New(session, sets, migrate.Options{Logger: logger})
 	if err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)

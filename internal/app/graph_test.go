@@ -149,7 +149,7 @@ func TestGraph_ServerAboveReactor(t *testing.T) {
 
 	t.Run("outside the reactors group", func(t *testing.T) {
 		a := app.New(configtest.Config(t), io.Discard)
-		stray := fixtureReactor(a, "stray")
+		stray := fixtureReactor(a, "stray", graph.After(a.Nodes().Sweeper))
 		sys := buildAsRun(t, a, stray)
 		wantGuardFails(t, serverAlone(sys, a.Nodes().Server), sys, "stray")
 	})
@@ -164,7 +164,7 @@ func TestGraph_ReadinessChecks(t *testing.T) {
 	for _, c := range lifecycle.New(sys, cfg.Config).Checks() {
 		got = append(got, c.Name)
 	}
-	want := []string{"database", "storage", "job journal", "work queue", "schema"}
+	want := []string{"database", "storage", "job journal", "work queue", "schema", "sweeper"}
 	if !slices.Equal(got, want) {
 		t.Errorf("checks = %v, want %v", got, want)
 	}
@@ -210,6 +210,48 @@ func TestGraph_StreamsBelowTheJobRoot(t *testing.T) {
 	}
 	if t.Failed() {
 		t.Logf("layers:\n%s", sys)
+	}
+}
+
+func TestGraph_SweeperInTheReactorsAboveWhatItUses(t *testing.T) {
+	a := app.New(configtest.Config(t), io.Discard)
+	n := a.Nodes()
+
+	group, err := a.Graph().Build(n.Reactors)
+	if err != nil {
+		t.Fatalf("Build of %s: %v", n.Reactors.Name(), err)
+	}
+	if !group.Has(n.Sweeper) {
+		t.Errorf("a Build of %s does not hold %s; want it a member", n.Reactors.Name(), n.Sweeper.Name())
+	}
+
+	sys := buildAsRun(t, a)
+	for _, lower := range []graph.Ref{n.Database, n.SQL, n.Storage, n.Schema} {
+		if l, u := sys.LayerOf(lower), sys.LayerOf(n.Sweeper); l >= u {
+			t.Errorf("%s in layer %d, %s in layer %d; want %s below", lower.Name(), l, n.Sweeper.Name(), u, lower.Name())
+		}
+	}
+	if t.Failed() {
+		t.Logf("layers:\n%s", sys)
+	}
+}
+
+func TestGraph_SweeperRegistersTheReclaimers(t *testing.T) {
+	a := app.New(configtest.Config(t), io.Discard)
+	sweeper := buildAsRun(t, a).Get(a.Nodes().Sweeper)
+
+	nudge := func(name string) (panicked bool) {
+		defer func() { panicked = recover() != nil }()
+		sweeper.Nudge(name)
+		return false
+	}
+	for _, name := range []string{"index", "outbox", "inbox", "content", "input"} {
+		if nudge(name) {
+			t.Errorf("Nudge(%q) panicked; want %s registered", name, name)
+		}
+	}
+	if !nudge("files") {
+		t.Error(`Nudge("files") did not panic; want a name the sweeper was not built with refused`)
 	}
 }
 

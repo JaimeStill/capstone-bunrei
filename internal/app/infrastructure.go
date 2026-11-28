@@ -12,12 +12,15 @@ import (
 	"github.com/standards-lab/go-messaging/nats"
 	"github.com/standards-lab/go-storage"
 	"github.com/standards-lab/go-storage/s3"
+	"github.com/standards-lab/sqlate"
+	pgdialect "github.com/standards-lab/sqlate/postgres"
 )
 
 func defineInfrastructure(g *graph.Graph, n *Nodes) {
 	n.LifecycleConfig = g.Define("lifecycle config", n.newLifecycleConfig)
 	n.Logger = g.Define("logger", n.newLogger)
 	n.Database = g.Define("database", n.newDatabase)
+	n.SQL = g.Define("sql", n.newSQL)
 	n.Storage = g.Define("storage", n.newStorage)
 	n.Content = g.Define("content", n.newContent)
 	n.Input = g.Define("input", n.newInput)
@@ -35,6 +38,10 @@ func (n *Nodes) newLogger(s *graph.Scope) (*slog.Logger, error) {
 
 func (n *Nodes) newDatabase(s *graph.Scope) (*database.DB, error) {
 	return postgres.New(s.Use(n.Config).Database)
+}
+
+func (n *Nodes) newSQL(s *graph.Scope) (*sqlate.DB, error) {
+	return sqlate.Wrap(s.Use(n.Database).Conn(), pgdialect.Dialect{}), nil
 }
 
 func (n *Nodes) newStorage(s *graph.Scope) (*storage.Store, error) {

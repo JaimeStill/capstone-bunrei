@@ -60,5 +60,14 @@
     "default_size": 20,
     "max_size": 100
   },
+  "sweep": {
+    "interval": "30s",
+    "batch": 100,
+    "outbox_age": "168h",
+    "inbox_age": "168h",
+    "index_age": "720h",
+    "content_age": "1608h",
+    "input_age": "720h"
+  },
   "shutdown_timeout": "10s"
 }

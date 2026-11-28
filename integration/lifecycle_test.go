@@ -35,6 +35,7 @@ var readyChecks = []check{
 	{Name: "job journal", Ready: true},
 	{Name: "work queue", Ready: true},
 	{Name: "schema", Ready: true},
+	{Name: "sweeper", Ready: true},
 }
 
 func assertProbeHeaders(t *testing.T, probe string, r *webtest.Response) {

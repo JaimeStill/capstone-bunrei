@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -496,5 +497,115 @@ func TestNATS_BaseStreams(t *testing.T) {
 	if q.URL != "nats://127.0.0.1:4222" || q.Stream != "BUNREI_WORK" || q.Subject != "bunrei.work" ||
 		q.DeadLetter != "bunrei.work.dead" || q.Owner == nil || !*q.Owner || q.MaxAge != 0 {
 		t.Errorf("nats_queue = %+v, want the owned BUNREI_WORK queue on bunrei.work, dead letters on bunrei.work.dead, kept until taken, on the local server", q)
+	}
+}
+
+func TestSweep_FinalizeDefaults(t *testing.T) {
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize(""); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	s := cfg.Sweep
+	if s.Interval.Duration() != 30*time.Second || *s.Batch != 100 {
+		t.Errorf("Sweep = {%s %d}, want {30s 100}", s.Interval, *s.Batch)
+	}
+	day := 24 * time.Hour
+	got := []time.Duration{s.OutboxAge.Duration(), s.InboxAge.Duration(), s.IndexAge.Duration(), s.ContentAge.Duration(), s.InputAge.Duration()}
+	want := []time.Duration{7 * day, 7 * day, 30 * day, 67 * day, 30 * day}
+	if !slices.Equal(got, want) {
+		t.Errorf("Sweep ages {outbox inbox index content input} = %v, want %v", got, want)
+	}
+	if s.Env != (config.SweepEnv{}) {
+		t.Errorf("Sweep.Env = %+v, want empty under the empty prefix", s.Env)
+	}
+}
+
+func TestSweep_MergeOverlaysSetFields(t *testing.T) {
+	base := &config.Config{}
+	base.Sweep.Batch = new(10)
+	base.Sweep.IndexAge = new(libconfig.Duration(time.Hour))
+
+	overlay := &config.Config{}
+	overlay.Sweep.ContentAge = new(libconfig.Duration(2 * time.Hour))
+
+	base.Merge(overlay)
+
+	if *base.Sweep.Batch != 10 || base.Sweep.IndexAge.Duration() != time.Hour {
+		t.Errorf("Sweep = {batch %d, index_age %s}, want the base's {10 1h}", *base.Sweep.Batch, base.Sweep.IndexAge)
+	}
+	if base.Sweep.ContentAge == nil || base.Sweep.ContentAge.Duration() != 2*time.Hour {
+		t.Errorf("Sweep.ContentAge = %v, want the overlay's 2h", base.Sweep.ContentAge)
+	}
+}
+
+func TestSweep_FinalizeEnvOverrides(t *testing.T) {
+	vars := map[string]string{
+		"BUNREI_SWEEP_INTERVAL":    "5s",
+		"BUNREI_SWEEP_BATCH":       "7",
+		"BUNREI_SWEEP_OUTBOX_AGE":  "48h",
+		"BUNREI_SWEEP_INBOX_AGE":   "72h",
+		"BUNREI_SWEEP_INDEX_AGE":   "96h",
+		"BUNREI_SWEEP_CONTENT_AGE": "400h",
+		"BUNREI_SWEEP_INPUT_AGE":   "200h",
+	}
+	for name, v := range vars {
+		t.Setenv(name, v)
+	}
+
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize("bunrei"); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	s := cfg.Sweep
+	if s.Interval.Duration() != 5*time.Second || *s.Batch != 7 {
+		t.Errorf("Sweep = {%s %d}, want {5s 7}", s.Interval, *s.Batch)
+	}
+	got := []time.Duration{s.OutboxAge.Duration(), s.InboxAge.Duration(), s.IndexAge.Duration(), s.ContentAge.Duration(), s.InputAge.Duration()}
+	want := []time.Duration{48 * time.Hour, 72 * time.Hour, 96 * time.Hour, 400 * time.Hour, 200 * time.Hour}
+	if !slices.Equal(got, want) {
+		t.Errorf("Sweep ages {outbox inbox index content input} = %v, want %v", got, want)
+	}
+	wantEnv := config.SweepEnv{
+		Interval:   "BUNREI_SWEEP_INTERVAL",
+		Batch:      "BUNREI_SWEEP_BATCH",
+		OutboxAge:  "BUNREI_SWEEP_OUTBOX_AGE",
+		InboxAge:   "BUNREI_SWEEP_INBOX_AGE",
+		IndexAge:   "BUNREI_SWEEP_INDEX_AGE",
+		ContentAge: "BUNREI_SWEEP_CONTENT_AGE",
+		InputAge:   "BUNREI_SWEEP_INPUT_AGE",
+	}
+	if s.Env != wantEnv {
+		t.Errorf("Sweep.Env = %+v, want %+v", s.Env, wantEnv)
+	}
+}
+
+func TestSweep_FinalizeRejectsInvalidPolicy(t *testing.T) {
+	cases := map[string]struct {
+		name, value string
+		want        string
+	}{
+		"zero interval":        {"BUNREI_SWEEP_INTERVAL", "0s", "interval"},
+		"zero batch":           {"BUNREI_SWEEP_BATCH", "0", "batch"},
+		"negative outbox age":  {"BUNREI_SWEEP_OUTBOX_AGE", "-1h", "outbox_age"},
+		"zero inbox age":       {"BUNREI_SWEEP_INBOX_AGE", "0s", "inbox_age"},
+		"zero index age":       {"BUNREI_SWEEP_INDEX_AGE", "0s", "index_age"},
+		"index age no period":  {"BUNREI_SWEEP_INDEX_AGE", "monthly", "BUNREI_SWEEP_INDEX_AGE"},
+		"content within renew": {"BUNREI_SWEEP_CONTENT_AGE", "168h", "content_age"},
+		"input within renew":   {"BUNREI_SWEEP_INPUT_AGE", "24h", "input_age"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(tc.name, tc.value)
+
+			err := configtest.Minimal().Finalize("bunrei")
+			if err == nil {
+				t.Fatal("Finalize accepted an invalid sweep policy")
+			}
+			if !strings.Contains(err.Error(), "sweep:") || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %v, want the sweep block wrap naming %s", err, tc.want)
+			}
+		})
 	}
 }

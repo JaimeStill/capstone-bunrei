@@ -17,11 +17,11 @@ const envPrefix = "bunrei"
 // Config is the service's root configuration: the library capability blocks
 // (the log, the server, the database connection, the storage connection, the
 // BUNREI_JOBS stream's NATS broker, and the BUNREI_WORK stream's NATS work
-// queue) plus the service-owned read policy and object layout. It embeds the
-// lifecycle Coordinator's configuration by value and untagged, so its
-// shutdown_timeout is a top-level key and ShutdownTimeout a promoted field;
-// Config.Config is that lifecycle block, the one the composition root hands
-// the Coordinator.
+// queue) plus the service-owned read policy, object layout, and sweep
+// policy. It embeds the lifecycle Coordinator's configuration by value and
+// untagged, so its shutdown_timeout is a top-level key and ShutdownTimeout
+// a promoted field; Config.Config is that lifecycle block, the one the
+// composition root hands the Coordinator.
 type Config struct {
 	lifecycle.Config
 
@@ -33,6 +33,7 @@ type Config struct {
 	NATSQueue nats.QueueConfig `json:"nats_queue"`
 	Objects   ObjectsConfig    `json:"objects"`
 	Reads     ReadsConfig      `json:"reads"`
+	Sweep     SweepConfig      `json:"sweep"`
 }
 
 // Merge overlays src's set fields onto the receiver, delegating each block
@@ -50,6 +51,7 @@ func (c *Config) Merge(src *Config) {
 	c.NATSQueue.Merge(&src.NATSQueue)
 	c.Objects.Merge(&src.Objects)
 	c.Reads.Merge(&src.Reads)
+	c.Sweep.Merge(&src.Sweep)
 }
 
 // Finalize finalizes each block under the same prefix, the lifecycle block
@@ -62,7 +64,9 @@ func (c *Config) Merge(src *Config) {
 // own ("nats: config:" and "nats: queue config:"); their variables are
 // <PREFIX>_NATS_* and <PREFIX>_NATS_QUEUE_*. An empty prefix composes empty
 // variable names, which read as no override, so it disables every
-// environment override; tests use this hermetic form.
+// environment override; tests use this hermetic form. Once every block is
+// final, it checks the sweep's content_age and input_age each exceed the
+// objects block's renew_age.
 func (c *Config) Finalize(envPrefix string) error {
 	if err := c.Config.Finalize(envPrefix); err != nil {
 		return err
@@ -90,6 +94,20 @@ func (c *Config) Finalize(envPrefix string) error {
 	}
 	if err := c.Reads.Finalize(envPrefix); err != nil {
 		return fmt.Errorf("reads: %w", err)
+	}
+	if err := c.Sweep.Finalize(envPrefix); err != nil {
+		return fmt.Errorf("sweep: %w", err)
+	}
+	for _, age := range []struct {
+		key   string
+		value libconfig.Duration
+	}{
+		{"content_age", *c.Sweep.ContentAge},
+		{"input_age", *c.Sweep.InputAge},
+	} {
+		if age.value <= *c.Objects.RenewAge {
+			return fmt.Errorf("sweep: %s %s must exceed objects renew_age %s", age.key, age.value, c.Objects.RenewAge)
+		}
 	}
 	return nil
 }
