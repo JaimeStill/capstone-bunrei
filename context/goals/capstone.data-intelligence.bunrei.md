@@ -121,7 +121,7 @@ routes, schema and settings stay two-way while no deployment holds data.
 
 ## Progress
 
-slices 7/7 committed · standards ✓ · spec gaps 1 closed, 1 escalated · editor —
+slices 7/7 committed · standards ✓ · spec ✓ · editor —
 - escalation, spec: narrow Behavior 12 to Bunrei's own Commands and Queries (the upload keeps
   go-web-sdk's and the draft's problem types; unmatched routes keep `about:blank`)? yes
 
