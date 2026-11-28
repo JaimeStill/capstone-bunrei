@@ -121,7 +121,7 @@ configuration or migrations a later task can change while no deployment holds da
 
 ## Progress
 
-slices 8/8 committed · standards — · spec — · editor —
+slices 8/8 committed · standards ✓ · spec ✓ (2 rounds) · editor —
 - slice 2: no root `require` on `client` until a root package imports it (tidy drops it);
   wire names snake_case after docinfer; `client` requires docinfer v0.5.0; the wire-version
   constant waits for the first `dataschema` stamp.
@@ -141,6 +141,9 @@ slices 8/8 committed · standards — · spec — · editor —
 - slice 8: blob reclaimer is root-level `expiry` (no library pages a storage prefix by age); a
   pass lists at most its budget; startup refuses content or input ages at or below the renew
   age; a shared `sql` node; Bunrei-owned `sweep` block.
+- standards: reflowed package docs; dropped two tests that restated constants.
+- spec round 1 gaps, closed in 8928f51: job subject prefix from `nats.prefix`; domain nodes after
+  the schema; local overlay points at the capstone dev stack (4226, 5439, 8335).
 
 ## Decisions
 
