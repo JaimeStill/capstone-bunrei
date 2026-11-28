@@ -87,3 +87,11 @@ type Failed struct {
 	Attempt int    `json:"attempt"`
 	Error   string `json:"error"`
 }
+
+// Profile is one processing profile Bunrei serves, as ListProfiles returns it: its versioned
+// name, which a Command's profile names, and the docinfer Profile it resolves to with the prompt
+// overrides active when it was listed.
+type Profile struct {
+	Name     string           `json:"name"`
+	Resolved docinfer.Profile `json:"resolved"`
+}
