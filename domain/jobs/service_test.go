@@ -614,3 +614,197 @@ func TestAppend_GivesUpOnAPersistentError(t *testing.T) {
 		t.Errorf("calls = %d, want 4: the append and 3 retries", j.calls)
 	}
 }
+
+func events(t *testing.T, b *memory.Broker, id string) []event.Event {
+	t.Helper()
+	var got []event.Event
+	for entry, err := range b.Read(context.Background(), "bunrei.job."+id, 0) {
+		if err != nil {
+			t.Fatalf("Read: %v", err)
+		}
+		got = append(got, entry.Event)
+	}
+	return got
+}
+
+func types(es []event.Event) []string {
+	var ts []string
+	for _, e := range es {
+		ts = append(ts, e.Type)
+	}
+	return ts
+}
+
+func TestGet_ReturnsTheFoldedJob(t *testing.T) {
+	s := newService(memory.New())
+	id := jobID()
+	mustAppend(t, s, id, queued(t))
+	a := mustAppend(t, s, id, started(t, 1))
+
+	j, err := s.Get(context.Background(), id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !reflect.DeepEqual(j, a.Job.Job) || j.State != client.StateRunning || j.Sequence != 2 {
+		t.Errorf("Get = %+v, want %+v, running at sequence 2", j, a.Job.Job)
+	}
+	upper, err := s.Get(context.Background(), strings.ToUpper(id))
+	if err != nil || upper.ID != id {
+		t.Errorf("Get of the uppercase ID = %+v, %v; want the job under its canonical ID", upper, err)
+	}
+}
+
+func TestGet_UnknownAndInvalidIDs(t *testing.T) {
+	s := newService(memory.New())
+	if _, err := s.Get(context.Background(), jobID()); !errors.Is(err, jobs.ErrNotFound) {
+		t.Errorf("Get of an unknown job = %v, want ErrNotFound", err)
+	}
+	for _, id := range []string{"", "a.b", "not-a-uuid", "bunrei.job.>"} {
+		if _, err := s.Get(context.Background(), id); !errors.Is(err, jobs.ErrInvalidID) {
+			t.Errorf("Get(%q) = %v, want ErrInvalidID", id, err)
+		}
+	}
+}
+
+func TestCancel_AQueuedJobEndsCancelledCausedByTheRequest(t *testing.T) {
+	b := memory.New()
+	s := newService(b)
+	id := jobID()
+	mustAppend(t, s, id, queued(t))
+
+	if err := s.Cancel(context.Background(), id); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	got := events(t, b, id)
+	want := []string{jobs.TypeQueued, jobs.TypeCancelRequested, jobs.TypeCancelled}
+	if !reflect.DeepEqual(types(got), want) {
+		t.Fatalf("events = %v, want %v", types(got), want)
+	}
+	if _, ok := got[1].Extensions[jobs.ExtCausation]; ok {
+		t.Errorf("cancel_requested carries causationid %q, want none", got[1].Extensions[jobs.ExtCausation])
+	}
+	if c := got[2].Extensions[jobs.ExtCausation]; c != got[1].ID || c == "" {
+		t.Errorf("cancelled causationid = %q, want cancel_requested's id %q", c, got[1].ID)
+	}
+	j, err := s.Get(context.Background(), id)
+	if err != nil || j.State != client.StateCancelled || j.Sequence != 3 {
+		t.Errorf("Get = %+v, %v; want cancelled at sequence 3", j, err)
+	}
+}
+
+func TestCancel_AnEndedJobIsRefused(t *testing.T) {
+	for _, end := range []event.Event{
+		{Type: jobs.TypeCompleted, Data: []byte(`{"batches":0,"chunks":0,"digest":"","attempts":[]}`)},
+		{Type: jobs.TypeFailed, Data: []byte(`{"attempt":1,"error":"boom"}`)},
+		{Type: jobs.TypeCancelled},
+	} {
+		t.Run(end.Type, func(t *testing.T) {
+			b := memory.New()
+			s := newService(b)
+			id := jobID()
+			mustAppend(t, s, id, queued(t))
+			mustAppend(t, s, id, end)
+			if err := s.Cancel(context.Background(), id); !errors.Is(err, jobs.ErrEnded) {
+				t.Errorf("Cancel = %v, want ErrEnded", err)
+			}
+			if n := len(events(t, b, id)); n != 2 {
+				t.Errorf("the job holds %d events, want 2: nothing appended", n)
+			}
+		})
+	}
+}
+
+func TestCancel_ASecondCancelIsRefused(t *testing.T) {
+	s := newService(memory.New())
+	id := jobID()
+	mustAppend(t, s, id, queued(t))
+	if err := s.Cancel(context.Background(), id); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if err := s.Cancel(context.Background(), id); !errors.Is(err, jobs.ErrEnded) {
+		t.Errorf("the second Cancel = %v, want ErrEnded", err)
+	}
+}
+
+func TestCancel_UnknownAndInvalidIDs(t *testing.T) {
+	b := memory.New()
+	s := newService(b)
+	id := jobID()
+	if err := s.Cancel(context.Background(), id); !errors.Is(err, jobs.ErrNotFound) {
+		t.Errorf("Cancel of an unknown job = %v, want ErrNotFound", err)
+	}
+	if n := len(events(t, b, id)); n != 0 {
+		t.Errorf("the unknown job holds %d events, want none", n)
+	}
+	if err := s.Cancel(context.Background(), "a.b"); !errors.Is(err, jobs.ErrInvalidID) {
+		t.Errorf("Cancel(%q) = %v, want ErrInvalidID", "a.b", err)
+	}
+}
+
+func TestCancel_ARunningJobOnlyRecordsTheRequest(t *testing.T) {
+	b := memory.New()
+	s := newService(b)
+	id := jobID()
+	mustAppend(t, s, id, queued(t))
+	mustAppend(t, s, id, started(t, 1))
+
+	for range 2 {
+		if err := s.Cancel(context.Background(), id); err != nil {
+			t.Fatalf("Cancel: %v", err)
+		}
+	}
+	want := []string{jobs.TypeQueued, jobs.TypeStarted, jobs.TypeCancelRequested}
+	if got := types(events(t, b, id)); !reflect.DeepEqual(got, want) {
+		t.Errorf("events = %v, want %v: one request, the job left running", got, want)
+	}
+}
+
+func TestCancel_ARequestedJobBackInTheQueueEndsCancelledByTheFirstRequest(t *testing.T) {
+	b := memory.New()
+	s := newService(b)
+	id := jobID()
+	mustAppend(t, s, id, queued(t))
+	mustAppend(t, s, id, started(t, 1))
+	if err := s.Cancel(context.Background(), id); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	mustAppend(t, s, id, event.Event{Type: jobs.TypeAttemptFailed, Data: data(t, client.AttemptFailed{Attempt: 1, Error: "x"})})
+
+	if err := s.Cancel(context.Background(), id); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	got := events(t, b, id)
+	want := []string{jobs.TypeQueued, jobs.TypeStarted, jobs.TypeCancelRequested, jobs.TypeAttemptFailed, jobs.TypeCancelled}
+	if !reflect.DeepEqual(types(got), want) {
+		t.Fatalf("events = %v, want %v", types(got), want)
+	}
+	if c := got[4].Extensions[jobs.ExtCausation]; c != got[2].ID {
+		t.Errorf("cancelled causationid = %q, want the request's id %q", c, got[2].ID)
+	}
+}
+
+func TestCancel_StartedLandingFirstLeavesTheJobRunning(t *testing.T) {
+	j := &interceptor{Broker: memory.New()}
+	s := newService(j)
+	id := jobID()
+	mustAppend(t, s, id, queued(t))
+	j.calls = 0
+	j.before = func(n int) error {
+		if n == 2 {
+			otherWriter(t, j.Broker, id, started(t, 1))
+		}
+		return nil
+	}
+
+	if err := s.Cancel(context.Background(), id); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	want := []string{jobs.TypeQueued, jobs.TypeCancelRequested, jobs.TypeStarted}
+	if got := types(events(t, j.Broker, id)); !reflect.DeepEqual(got, want) {
+		t.Errorf("events = %v, want %v: the started append wins and no cancelled follows", got, want)
+	}
+	loaded, _, err := s.Load(context.Background(), id)
+	if err != nil || loaded.State != client.StateRunning || !loaded.CancelRequested {
+		t.Errorf("Load = state %s, cancel requested %t, %v; want running with the request recorded", loaded.State, loaded.CancelRequested, err)
+	}
+}

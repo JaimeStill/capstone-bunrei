@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"testing"
 	"uuid"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/standards-lab/go-core/event"
 	"github.com/standards-lab/go-core/graph"
 	"github.com/standards-lab/go-messaging"
+	"github.com/standards-lab/go-web-sdk/webtest"
 
 	"github.com/JaimeStill/capstone-bunrei/client"
 	"github.com/JaimeStill/capstone-bunrei/domain/jobs"
@@ -221,5 +223,35 @@ func TestJobs_OtherJobsLeaveTheJobSequence(t *testing.T) {
 	}
 	if j.Sequence != 2 || last != st.Sequence {
 		t.Errorf("Load = sequence %d, last %d; want 2, %d", j.Sequence, last, st.Sequence)
+	}
+}
+
+func TestJobs_GetJobAndCancelJobOverHTTP(t *testing.T) {
+	s := integration.Start(t, integration.Options{})
+	c := s.Client()
+	js := jetStream(t)
+
+	j := webtest.Decode[client.Job](t, c.Post(t, "/api/jobs", submitRequest()), http.StatusAccepted)
+	got := webtest.Decode[client.Job](t, c.Get(t, "/api/jobs/"+j.ID), http.StatusOK)
+	if got != j || got.State != client.StateQueued {
+		t.Errorf("GetJob = %+v, want the submitted job %+v, queued", got, j)
+	}
+
+	resp := c.Post(t, "/api/jobs/"+j.ID+"/cancel", nil).Expect(t, http.StatusAccepted)
+	if loc := resp.Header.Get("Location"); loc != "/api/jobs/"+j.ID {
+		t.Errorf("Location = %q, want /api/jobs/%s", loc, j.ID)
+	}
+	got = webtest.Decode[client.Job](t, c.Get(t, "/api/jobs/"+j.ID), http.StatusOK)
+	if got.State != client.StateCancelled || got.Sequence != 3 {
+		t.Errorf("GetJob after CancelJob = %+v, want cancelled at sequence 3", got)
+	}
+	events := jobEvents(t, js, j.ID)
+	if len(events) != 3 || events[1].Type != jobs.TypeCancelRequested || events[2].Type != jobs.TypeCancelled ||
+		events[2].Extensions[jobs.ExtCausation] != events[1].ID {
+		t.Errorf("BUNREI_JOBS holds %+v, want queued, cancel_requested, and cancelled caused by it", events)
+	}
+
+	if code := s.Stop(t); code != 0 {
+		t.Fatalf("exit = %d, want 0:\n%s", code, s.Output())
 	}
 }

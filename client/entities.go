@@ -54,14 +54,17 @@ type Attempt struct {
 	Done *job.Done `json:"done,omitempty"` // the attempt's job.Done; nil when it ended without one
 }
 
-// Queued is the data of bunrei.job.queued: the job's input, and the caller's extraction.
+// Queued is the data of bunrei.job.queued: the job's input, and the caller's three extracts,
+// each docinfer's Options field of the same name and nil when the caller asked none.
 type Queued struct {
-	Profile    string            `json:"profile"`
-	Name       string            `json:"name"`
-	MediaType  string            `json:"media_type"`
-	Size       int64             `json:"size"`
-	SHA256     string            `json:"sha256"`
-	Extraction *docinfer.Extract `json:"extraction,omitempty"` // nil when the caller asked none
+	Profile   string            `json:"profile"`
+	Name      string            `json:"name"`
+	MediaType string            `json:"media_type"`
+	Size      int64             `json:"size"`
+	SHA256    string            `json:"sha256"`
+	Extract   *docinfer.Extract `json:"extract,omitempty"`  // runs on each source text
+	Document  *docinfer.Extract `json:"document,omitempty"` // runs over the job's whole text
+	Timeline  *docinfer.Extract `json:"timeline,omitempty"` // runs over each video's timeline
 }
 
 // Started is the data of bunrei.job.started: the attempt, the replica running it, and the
@@ -83,4 +86,12 @@ type AttemptFailed struct {
 type Failed struct {
 	Attempt int    `json:"attempt"`
 	Error   string `json:"error"`
+}
+
+// Profile is one processing profile Bunrei serves, as ListProfiles returns it: its versioned
+// name, which a Command's profile names, and the docinfer Profile it resolves to with the prompt
+// overrides active when it was listed.
+type Profile struct {
+	Name     string           `json:"name"`
+	Resolved docinfer.Profile `json:"resolved"`
 }

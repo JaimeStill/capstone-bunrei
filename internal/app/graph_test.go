@@ -280,7 +280,7 @@ func TestGraph_SweeperRegistersTheReclaimers(t *testing.T) {
 		sweeper.Nudge(name)
 		return false
 	}
-	for _, name := range []string{"index", "outbox", "inbox", "content", "input"} {
+	for _, name := range []string{"index", "outbox", "inbox", "content", "input", "uploads", "upload objects", "submissions", "completed uploads"} {
 		if nudge(name) {
 			t.Errorf("Nudge(%q) panicked; want %s registered", name, name)
 		}

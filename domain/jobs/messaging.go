@@ -49,6 +49,14 @@ const (
 // Source is the source of every event Bunrei appends: the service, never a replica.
 const Source = "bunrei"
 
+// TypeWork is the type of the event that puts a job on the work queue, its data a [Work].
+const TypeWork = "bunrei.work"
+
+// Work is the data of a [TypeWork] event: the ID of the job to run.
+type Work struct {
+	Job string `json:"job"`
+}
+
 var layers = map[string]string{
 	TypeQueued:          LayerBunrei,
 	TypeStarted:         LayerBunrei,

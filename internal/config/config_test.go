@@ -344,8 +344,8 @@ func TestObjects_FinalizeDefaults(t *testing.T) {
 	}
 
 	o := cfg.Objects
-	if *o.ContentPrefix != "content/" || *o.InputPrefix != "input/" {
-		t.Errorf("Objects prefixes = %q, %q, want content/ and input/", *o.ContentPrefix, *o.InputPrefix)
+	if *o.ContentPrefix != "content/" || *o.InputPrefix != "input/" || *o.UploadPrefix != "upload/" {
+		t.Errorf("Objects prefixes = %q, %q, %q, want content/, input/, and upload/", *o.ContentPrefix, *o.InputPrefix, *o.UploadPrefix)
 	}
 	if got := o.RenewAge.Duration(); got != 7*24*time.Hour {
 		t.Errorf("Objects.RenewAge = %s, want 168h", got)
@@ -376,6 +376,7 @@ func TestObjects_MergeOverlaysSetFields(t *testing.T) {
 func TestObjects_FinalizeEnvOverrides(t *testing.T) {
 	t.Setenv("BUNREI_OBJECTS_CONTENT_PREFIX", "c/")
 	t.Setenv("BUNREI_OBJECTS_INPUT_PREFIX", "i/")
+	t.Setenv("BUNREI_OBJECTS_UPLOAD_PREFIX", "u/")
 	t.Setenv("BUNREI_OBJECTS_RENEW_AGE", "24h")
 
 	cfg := configtest.Minimal()
@@ -384,12 +385,13 @@ func TestObjects_FinalizeEnvOverrides(t *testing.T) {
 	}
 
 	o := cfg.Objects
-	if *o.ContentPrefix != "c/" || *o.InputPrefix != "i/" || o.RenewAge.Duration() != 24*time.Hour {
-		t.Errorf("Objects = %q, %q, %s, want c/, i/, 24h", *o.ContentPrefix, *o.InputPrefix, o.RenewAge)
+	if *o.ContentPrefix != "c/" || *o.InputPrefix != "i/" || *o.UploadPrefix != "u/" || o.RenewAge.Duration() != 24*time.Hour {
+		t.Errorf("Objects = %q, %q, %q, %s, want c/, i/, u/, 24h", *o.ContentPrefix, *o.InputPrefix, *o.UploadPrefix, o.RenewAge)
 	}
 	want := config.ObjectsEnv{
 		ContentPrefix: "BUNREI_OBJECTS_CONTENT_PREFIX",
 		InputPrefix:   "BUNREI_OBJECTS_INPUT_PREFIX",
+		UploadPrefix:  "BUNREI_OBJECTS_UPLOAD_PREFIX",
 		RenewAge:      "BUNREI_OBJECTS_RENEW_AGE",
 	}
 	if o.Env != want {
@@ -399,20 +401,24 @@ func TestObjects_FinalizeEnvOverrides(t *testing.T) {
 
 func TestObjects_FinalizeRejectsInvalidLayout(t *testing.T) {
 	cases := map[string]struct {
-		content, input, renew string
-		want                  string
+		content, input, upload, renew string
+		want                          string
 	}{
-		"content without a slash": {"content", "input/", "1h", "content_prefix"},
-		"input a bare slash":      {"content/", "/", "1h", "input_prefix"},
-		"same prefix":             {"blobs/", "blobs/", "1h", "overlap"},
-		"input under content":     {"blobs/", "blobs/input/", "1h", "overlap"},
-		"negative renew age":      {"content/", "input/", "-1h", "renew_age"},
-		"renew age not a period":  {"content/", "input/", "weekly", "BUNREI_OBJECTS_RENEW_AGE"},
+		"content without a slash": {"content", "input/", "upload/", "1h", "content_prefix"},
+		"input a bare slash":      {"content/", "/", "upload/", "1h", "input_prefix"},
+		"upload without a slash":  {"content/", "input/", "upload", "1h", "upload_prefix"},
+		"same prefix":             {"blobs/", "blobs/", "upload/", "1h", "overlap"},
+		"input under content":     {"blobs/", "blobs/input/", "upload/", "1h", "overlap"},
+		"upload under input":      {"content/", "input/", "input/upload/", "1h", "overlap"},
+		"content under upload":    {"upload/content/", "input/", "upload/", "1h", "overlap"},
+		"negative renew age":      {"content/", "input/", "upload/", "-1h", "renew_age"},
+		"renew age not a period":  {"content/", "input/", "upload/", "weekly", "BUNREI_OBJECTS_RENEW_AGE"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("BUNREI_OBJECTS_CONTENT_PREFIX", tc.content)
 			t.Setenv("BUNREI_OBJECTS_INPUT_PREFIX", tc.input)
+			t.Setenv("BUNREI_OBJECTS_UPLOAD_PREFIX", tc.upload)
 			t.Setenv("BUNREI_OBJECTS_RENEW_AGE", tc.renew)
 
 			cfg := configtest.Minimal()
@@ -597,6 +603,176 @@ func TestSweep_FinalizeRejectsInvalidPolicy(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), "sweep:") || !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("error = %v, want the sweep block wrap naming %s", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestUploads_FinalizeDefaults(t *testing.T) {
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize(""); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	u := cfg.Uploads
+	if got := u.Lifetime.Duration(); got != 24*time.Hour {
+		t.Errorf("Uploads.Lifetime = %s, want 24h", got)
+	}
+	if got := u.ObjectAge(); got != 48*time.Hour {
+		t.Errorf("Uploads.ObjectAge() = %s, want 48h, twice the lifetime", got)
+	}
+	if got := *u.ChunkSize; got != 4<<20 {
+		t.Errorf("Uploads.ChunkSize = %d, want 4 MiB", got)
+	}
+	if u.Env != (config.UploadsEnv{}) {
+		t.Errorf("Uploads.Env = %+v, want empty under the empty prefix", u.Env)
+	}
+}
+
+func TestUploads_MergeOverlaysSetFields(t *testing.T) {
+	base := &config.Config{}
+	base.Uploads.Lifetime = new(libconfig.Duration(time.Hour))
+
+	base.Merge(&config.Config{})
+	if got := base.Uploads.Lifetime.Duration(); got != time.Hour {
+		t.Errorf("Uploads.Lifetime = %s, want the base's 1h under an empty overlay", got)
+	}
+
+	overlay := &config.Config{}
+	overlay.Uploads.Lifetime = new(libconfig.Duration(2 * time.Hour))
+	base.Merge(overlay)
+	if got := base.Uploads.Lifetime.Duration(); got != 2*time.Hour {
+		t.Errorf("Uploads.Lifetime = %s, want the overlay's 2h", got)
+	}
+}
+
+func TestUploads_FinalizeEnvOverrides(t *testing.T) {
+	t.Setenv("BUNREI_UPLOADS_LIFETIME", "6h")
+	t.Setenv("BUNREI_UPLOADS_CHUNK_SIZE", "1048576")
+
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize("bunrei"); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	if got := cfg.Uploads.Lifetime.Duration(); got != 6*time.Hour {
+		t.Errorf("Uploads.Lifetime = %s, want 6h from BUNREI_UPLOADS_LIFETIME", got)
+	}
+	if got := *cfg.Uploads.ChunkSize; got != 1<<20 {
+		t.Errorf("Uploads.ChunkSize = %d, want 1 MiB from BUNREI_UPLOADS_CHUNK_SIZE", got)
+	}
+	want := config.UploadsEnv{Lifetime: "BUNREI_UPLOADS_LIFETIME", ChunkSize: "BUNREI_UPLOADS_CHUNK_SIZE"}
+	if cfg.Uploads.Env != want {
+		t.Errorf("Uploads.Env = %+v, want %+v", cfg.Uploads.Env, want)
+	}
+}
+
+func TestUploads_FinalizeRejectsInvalidPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name, value, want string
+	}{
+		{"BUNREI_UPLOADS_LIFETIME", "0s", "lifetime"},
+		{"BUNREI_UPLOADS_LIFETIME", "-1h", "lifetime"},
+		{"BUNREI_UPLOADS_LIFETIME", "daily", "BUNREI_UPLOADS_LIFETIME"},
+		{"BUNREI_UPLOADS_CHUNK_SIZE", "0", "chunk_size"},
+		{"BUNREI_UPLOADS_CHUNK_SIZE", "-1", "chunk_size"},
+		{"BUNREI_UPLOADS_CHUNK_SIZE", "4MiB", "BUNREI_UPLOADS_CHUNK_SIZE"},
+	} {
+		t.Run(tc.name+"="+tc.value, func(t *testing.T) {
+			t.Setenv(tc.name, tc.value)
+
+			err := configtest.Minimal().Finalize("bunrei")
+			if err == nil {
+				t.Fatal("Finalize accepted an invalid upload policy")
+			}
+			if !strings.Contains(err.Error(), "uploads:") || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %v, want the uploads block wrap naming %s", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestSubmissions_FinalizeDefaults(t *testing.T) {
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize(""); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	s := cfg.Submissions
+	if got := *s.DocumentLimit; got != 4<<20 {
+		t.Errorf("Submissions.DocumentLimit = %d, want 4 MiB", got)
+	}
+	if got := s.Retention.Duration(); got != 30*24*time.Hour {
+		t.Errorf("Submissions.Retention = %s, want 720h", got)
+	}
+	if s.Env != (config.SubmissionsEnv{}) {
+		t.Errorf("Submissions.Env = %+v, want empty under the empty prefix", s.Env)
+	}
+}
+
+func TestSubmissions_MergeOverlaysSetFields(t *testing.T) {
+	base := &config.Config{}
+	base.Submissions.DocumentLimit = new(int64(1024))
+	base.Submissions.Retention = new(libconfig.Duration(time.Hour))
+
+	base.Merge(&config.Config{})
+	if got := *base.Submissions.DocumentLimit; got != 1024 {
+		t.Errorf("Submissions.DocumentLimit = %d, want the base's 1024 under an empty overlay", got)
+	}
+
+	overlay := &config.Config{}
+	overlay.Submissions.DocumentLimit = new(int64(2048))
+	overlay.Submissions.Retention = new(libconfig.Duration(2 * time.Hour))
+	base.Merge(overlay)
+	if got := *base.Submissions.DocumentLimit; got != 2048 {
+		t.Errorf("Submissions.DocumentLimit = %d, want the overlay's 2048", got)
+	}
+	if got := base.Submissions.Retention.Duration(); got != 2*time.Hour {
+		t.Errorf("Submissions.Retention = %s, want the overlay's 2h", got)
+	}
+}
+
+func TestSubmissions_FinalizeEnvOverrides(t *testing.T) {
+	t.Setenv("BUNREI_SUBMISSIONS_DOCUMENT_LIMIT", "1048576")
+	t.Setenv("BUNREI_SUBMISSIONS_RETENTION", "48h")
+
+	cfg := configtest.Minimal()
+	if err := cfg.Finalize("bunrei"); err != nil {
+		t.Fatalf("Finalize: %v", err)
+	}
+
+	s := cfg.Submissions
+	if got := *s.DocumentLimit; got != 1<<20 {
+		t.Errorf("Submissions.DocumentLimit = %d, want 1 MiB from BUNREI_SUBMISSIONS_DOCUMENT_LIMIT", got)
+	}
+	if got := s.Retention.Duration(); got != 48*time.Hour {
+		t.Errorf("Submissions.Retention = %s, want 48h from BUNREI_SUBMISSIONS_RETENTION", got)
+	}
+	want := config.SubmissionsEnv{DocumentLimit: "BUNREI_SUBMISSIONS_DOCUMENT_LIMIT", Retention: "BUNREI_SUBMISSIONS_RETENTION"}
+	if s.Env != want {
+		t.Errorf("Submissions.Env = %+v, want %+v", s.Env, want)
+	}
+}
+
+func TestSubmissions_FinalizeRejectsInvalidPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name, value, want string
+	}{
+		{"BUNREI_SUBMISSIONS_DOCUMENT_LIMIT", "0", "document_limit"},
+		{"BUNREI_SUBMISSIONS_DOCUMENT_LIMIT", "-1", "document_limit"},
+		{"BUNREI_SUBMISSIONS_DOCUMENT_LIMIT", "4MiB", "BUNREI_SUBMISSIONS_DOCUMENT_LIMIT"},
+		{"BUNREI_SUBMISSIONS_RETENTION", "0s", "retention"},
+		{"BUNREI_SUBMISSIONS_RETENTION", "monthly", "BUNREI_SUBMISSIONS_RETENTION"},
+	} {
+		t.Run(tc.name+"="+tc.value, func(t *testing.T) {
+			t.Setenv(tc.name, tc.value)
+
+			err := configtest.Minimal().Finalize("bunrei")
+			if err == nil {
+				t.Fatal("Finalize accepted an invalid submissions policy")
+			}
+			if !strings.Contains(err.Error(), "submissions:") || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %v, want the submissions block wrap naming %s", err, tc.want)
 			}
 		})
 	}

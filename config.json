@@ -54,11 +54,20 @@
   "objects": {
     "content_prefix": "content/",
     "input_prefix": "input/",
+    "upload_prefix": "upload/",
     "renew_age": "168h"
   },
   "reads": {
     "default_size": 20,
     "max_size": 100
+  },
+  "uploads": {
+    "lifetime": "24h",
+    "chunk_size": 4194304
+  },
+  "submissions": {
+    "document_limit": 4194304,
+    "retention": "720h"
   },
   "sweep": {
     "interval": "30s",

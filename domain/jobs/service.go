@@ -11,9 +11,16 @@ import (
 
 	"github.com/standards-lab/go-core/event"
 	"github.com/standards-lab/go-messaging"
+
+	"github.com/JaimeStill/capstone-bunrei/client"
 )
 
 const retries = 3
+
+var (
+	errRequested = errors.New("the job's cancellation is already requested")
+	errNotQueued = errors.New("the job is not queued")
+)
 
 // Service is the job root: it loads a job by folding its events from the journal, and appends
 // the event a caller decides from the folded job, guarded by the subject's last stream sequence.
@@ -187,4 +194,61 @@ func checkID(id string) error {
 		return fmt.Errorf("%w: %q", ErrInvalidID, id)
 	}
 	return nil
+}
+
+// Get returns the job id's events fold to, as GetJob answers it. id is a UUID, read in its
+// canonical form; any other is ErrInvalidID, and a job with no events is ErrNotFound.
+func (s *Service) Get(ctx context.Context, id string) (client.Job, error) {
+	id, err := canonical(id)
+	if err != nil {
+		return client.Job{}, err
+	}
+	j, _, err := s.Load(ctx, id)
+	return j.Job, err
+}
+
+// Cancel is CancelJob: it requests the job's cancellation, and ends the job while it is queued.
+// id is read as [Service.Get] reads it; a job with no events is ErrNotFound, and an ended one
+// ErrEnded.
+//
+// Cancel first appends cancel_requested, unless the job already holds one. Then, while the job
+// is still queued, it appends cancelled, its causationid the cancel_requested event's id. Each
+// append is guarded by the job's last stream sequence, so a started event that lands first
+// wins: the job stays running with its cancellation requested, and Cancel returns nil, as it
+// does when the job ends some other way between the two appends.
+func (s *Service) Cancel(ctx context.Context, id string) error {
+	id, err := canonical(id)
+	if err != nil {
+		return err
+	}
+	_, err = s.Append(ctx, id, func(j Job) (event.Event, error) {
+		switch {
+		case j.Sequence == 0:
+			return event.Event{}, fmt.Errorf("job %s: %w", id, ErrNotFound)
+		case j.CancelRequested:
+			return event.Event{}, errRequested
+		}
+		return event.Event{Type: TypeCancelRequested}, nil
+	})
+	if err != nil && !errors.Is(err, errRequested) {
+		return err
+	}
+	_, err = s.Append(ctx, id, func(j Job) (event.Event, error) {
+		if j.State != client.StateQueued {
+			return event.Event{}, errNotQueued
+		}
+		return event.Event{Type: TypeCancelled, Extensions: map[string]string{ExtCausation: j.cancelRequest}}, nil
+	})
+	if errors.Is(err, errNotQueued) || errors.Is(err, ErrEnded) {
+		return nil
+	}
+	return err
+}
+
+func canonical(id string) (string, error) {
+	u, err := uuid.Parse(id)
+	if err != nil {
+		return "", fmt.Errorf("%w: %q", ErrInvalidID, id)
+	}
+	return u.String(), nil
 }

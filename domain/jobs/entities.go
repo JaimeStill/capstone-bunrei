@@ -32,7 +32,8 @@ type Job struct {
 	// Attempts holds one entry per started event, in order, each without its Done.
 	Attempts []client.Attempt
 
-	digest []byte
+	cancelRequest string
+	digest        []byte
 }
 
 // Ended reports whether the job has ended: completed, failed, or cancelled.
@@ -94,7 +95,9 @@ func (j Job) apply(e event.Event) (Job, error) {
 		}
 		j.State, j.Error = client.StateQueued, d.Error
 	case TypeCancelRequested:
-		j.CancelRequested = true
+		if !j.CancelRequested {
+			j.CancelRequested, j.cancelRequest = true, e.ID
+		}
 	case TypeCompleted:
 		var d client.Manifest
 		if err := decode(e, &d); err != nil {

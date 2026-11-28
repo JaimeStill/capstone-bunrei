@@ -11,6 +11,8 @@ import (
 	"github.com/standards-lab/go-web-sdk"
 	"github.com/standards-lab/sqlate/migrate"
 	"github.com/standards-lab/sqlate/query"
+
+	"github.com/JaimeStill/capstone-bunrei/schema"
 )
 
 func defineAdmin(g *graph.Graph, n *Nodes) {
@@ -21,7 +23,7 @@ func (n *Nodes) newSchema(s *graph.Scope) (*admin.Service, error) {
 	pool := s.Use(n.Database)
 	logger := s.Use(n.Logger)
 
-	sets := make([]migrate.Set, 0, 3)
+	sets := make([]migrate.Set, 0, 4)
 	for _, source := range []struct {
 		name string
 		set  func() (migrate.Set, error)
@@ -29,6 +31,7 @@ func (n *Nodes) newSchema(s *graph.Scope) (*admin.Service, error) {
 		{"docproc", docprocpg.Migrations},
 		{"docinfer", docinferpg.Migrations},
 		{"messaging", msgpg.Migrations},
+		{"bunrei", schema.Migrations},
 	} {
 		set, err := source.set()
 		if err != nil {
