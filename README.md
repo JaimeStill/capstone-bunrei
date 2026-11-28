@@ -79,7 +79,9 @@ Configuration layers in a fixed precedence, later sources winning:
 
 1. `config.json` — the base file, every knob at its default.
 2. `config.<BUNREI_ENV>.json` — the environment overlay; `mise.toml` sets `BUNREI_ENV=local`, which
-   activates the committed `config.local.json` (loopback host, debug logging).
+   activates the committed `config.local.json` (loopback host, debug logging, and the addresses
+   of the capstone's development stack: NATS on 4226, `postgres-bunrei` on 5439, and the
+   SeaweedFS S3 gateway on 8335).
 3. `secrets.json`, `secrets.<BUNREI_ENV>.json` — gitignored secret layers.
 4. `BUNREI_*` environment variables — the final override:
    - `BUNREI_LOG_LEVEL`, `BUNREI_LOG_FORMAT`

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"uuid"
 
+	natsgo "github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/standards-lab/go-core/event"
 	"github.com/standards-lab/go-core/graph"
 	"github.com/standards-lab/go-messaging"
@@ -24,7 +26,7 @@ func composedJobs(t *testing.T, wrap func(messaging.Journal) messaging.Journal) 
 	n := a.Nodes()
 	if wrap != nil {
 		a.Graph().Replace(n.Jobs, func(s *graph.Scope) (*jobs.Service, error) {
-			return jobs.New(wrap(s.Use(n.JobJournal)), jobs.Options{}), nil
+			return jobs.New(wrap(s.Use(n.JobJournal)), jobs.Options{Prefix: s.Use(n.Config).NATS.Prefix}), nil
 		})
 	}
 	sys, err := a.Graph().Build(n.Jobs)
@@ -118,6 +120,44 @@ func TestJobs_ConflictBetweenTwoWritersRefolds(t *testing.T) {
 	if a.Sequence <= other.Sequence || a.Event.Extensions[jobs.ExtSequence] != "3" || a.Job.Checkpoint != 2 {
 		t.Errorf("appended at %d after the other writer's %d, jobsequence %s, Checkpoint %d; want after it, 3, 2",
 			a.Sequence, other.Sequence, a.Event.Extensions[jobs.ExtSequence], a.Job.Checkpoint)
+	}
+}
+
+func TestJobs_ConfiguredPrefix(t *testing.T) {
+	t.Setenv("BUNREI_NATS_PREFIX", "zzalt.job")
+	t.Setenv("BUNREI_NATS_STREAM", "ZZALT_JOBS")
+	s := composedJobs(t, nil)
+	id := uuid.NewV7().String()
+
+	appendEvent(t, s, id, queuedEvent(t))
+	st := appendEvent(t, s, id, startedEvent(t, 1))
+	j, last, err := s.Load(context.Background(), id)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if j.Sequence != 2 || last != st.Sequence {
+		t.Errorf("Load = sequence %d, last %d; want 2, %d", j.Sequence, last, st.Sequence)
+	}
+
+	nc, err := natsgo.Connect(integration.NATSURL())
+	if err != nil {
+		t.Fatalf("connect to NATS: %v", err)
+	}
+	t.Cleanup(nc.Close)
+	js, err := jetstream.New(nc)
+	if err != nil {
+		t.Fatalf("JetStream: %v", err)
+	}
+	stream, err := js.Stream(context.Background(), "ZZALT_JOBS")
+	if err != nil {
+		t.Fatalf("stream ZZALT_JOBS: %v", err)
+	}
+	msg, err := stream.GetLastMsgForSubject(context.Background(), "zzalt.job."+id)
+	if err != nil {
+		t.Fatalf("last message on zzalt.job.%s: %v", id, err)
+	}
+	if msg.Sequence != st.Sequence {
+		t.Errorf("last message on zzalt.job.%s at %d, want the started event's %d", id, msg.Sequence, st.Sequence)
 	}
 }
 

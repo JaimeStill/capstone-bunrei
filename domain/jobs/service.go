@@ -19,23 +19,29 @@ const retries = 3
 // the event a caller decides from the folded job, guarded by the subject's last stream sequence.
 type Service struct {
 	journal messaging.Journal
+	prefix  string
 	ids     func() string
 	now     func() time.Time
 }
 
-// Options configures a [Service]. The zero value mints version 7 UUIDs and stamps the time from
-// time.Now.
+// Options configures a [Service]. The zero value keeps jobs under bunrei.job, mints version 7
+// UUIDs, and stamps the time from time.Now.
 type Options struct {
+	// Prefix is the subject prefix a job's ID follows, joined by a dot; empty uses bunrei.job.
+	Prefix string
 	// IDs mints an event id; nil mints a version 7 UUID.
 	IDs func() string
 	// Clock returns the time stamped on an event that has none; nil uses time.Now.
 	Clock func() time.Time
 }
 
-// New constructs the job root over journal, the journal of the stream that captures
-// bunrei.job. Each field set in opts replaces its default. Construction performs no I/O.
+// New constructs the job root over journal, the journal of the stream that captures the subject
+// prefix. Each field set in opts replaces its default. Construction performs no I/O.
 func New(journal messaging.Journal, opts Options) *Service {
-	s := &Service{journal: journal, ids: opts.IDs, now: opts.Clock}
+	s := &Service{journal: journal, prefix: opts.Prefix, ids: opts.IDs, now: opts.Clock}
+	if s.prefix == "" {
+		s.prefix = "bunrei.job"
+	}
 	if s.ids == nil {
 		s.ids = func() string { return uuid.NewV7().String() }
 	}
@@ -125,7 +131,7 @@ func (s *Service) Append(ctx context.Context, id string, decide Decide) (Appende
 func (s *Service) append(ctx context.Context, last uint64, e event.Event) (uint64, bool, error) {
 	unknown := false
 	for attempt := 0; ; attempt++ {
-		seq, err := s.journal.Append(ctx, subject(e.Subject), last, e)
+		seq, err := s.journal.Append(ctx, s.subject(e.Subject), last, e)
 		if err == nil || errors.Is(err, messaging.ErrConflict) || event.IsPermanent(err) || ctx.Err() != nil || attempt == retries {
 			return seq, unknown, err
 		}
@@ -134,7 +140,7 @@ func (s *Service) append(ctx context.Context, last uint64, e event.Event) (uint6
 }
 
 func (s *Service) read(ctx context.Context, j Job, after uint64, pending string) (Job, uint64, *messaging.Entry, error) {
-	for entry, err := range s.journal.Read(ctx, subject(j.ID), after) {
+	for entry, err := range s.journal.Read(ctx, s.subject(j.ID), after) {
 		if err != nil {
 			return Job{}, 0, nil, fmt.Errorf("read job %s: %w", j.ID, err)
 		}

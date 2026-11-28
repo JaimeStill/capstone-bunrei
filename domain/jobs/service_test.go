@@ -387,6 +387,32 @@ func TestAppend_DefaultIDIsUUIDv7(t *testing.T) {
 	}
 }
 
+func TestService_Prefix(t *testing.T) {
+	b := memory.New()
+	s := jobs.New(b, jobs.Options{Prefix: "zzalt.job"})
+	id := jobID()
+	mustAppend(t, s, id, queued(t))
+	mustAppend(t, s, id, started(t, 1))
+
+	n := 0
+	for _, err := range b.Read(context.Background(), "zzalt.job."+id, 0) {
+		if err != nil {
+			t.Fatalf("Read: %v", err)
+		}
+		n++
+	}
+	if n != 2 {
+		t.Errorf("zzalt.job.%s holds %d events, want 2", id, n)
+	}
+	for _, err := range b.Read(context.Background(), "bunrei.job."+id, 0) {
+		t.Fatalf("bunrei.job.%s holds an event (%v), want none", id, err)
+	}
+	j, last, err := s.Load(context.Background(), id)
+	if err != nil || j.Sequence != 2 || last != 2 {
+		t.Errorf("Load = sequence %d, last %d, %v; want 2, 2, nil", j.Sequence, last, err)
+	}
+}
+
 type interceptor struct {
 	*memory.Broker
 	before func(n int) error

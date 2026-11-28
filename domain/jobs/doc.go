@@ -1,5 +1,6 @@
-// Package jobs is the job root: a job's state is its events, kept in order on the subject
-// bunrei.job. followed by the job's ID, and read and appended through go-messaging's Journal.
+// Package jobs is the job root: a job's state is its events, kept in order on the subject prefix,
+// bunrei.job unless [Options] sets another, followed by a dot and the job's ID, and read and
+// appended through go-messaging's Journal.
 //
 // Loading a job folds its events. Every event advances the job's gap-free sequence by one, which
 // becomes the job's Sequence and the next event's jobsequence: a count the fold derives, not the

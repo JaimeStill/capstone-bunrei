@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -206,6 +207,40 @@ func TestGraph_StreamsBelowTheJobRoot(t *testing.T) {
 	for _, stream := range []graph.Ref{n.JobJournal, n.WorkQueue} {
 		if l, u := sys.LayerOf(stream), sys.LayerOf(n.Jobs); l >= u {
 			t.Errorf("%s in layer %d, %s in layer %d; want %s below", stream.Name(), l, n.Jobs.Name(), u, stream.Name())
+		}
+	}
+	if t.Failed() {
+		t.Logf("layers:\n%s", sys)
+	}
+}
+
+func domainNodes(n app.Nodes) []graph.Ref {
+	var refs []graph.Ref
+	v := reflect.ValueOf(n)
+	for _, field := range v.Fields() {
+		if strings.Contains(field.Type().String(), "/capstone-bunrei/domain/") {
+			refs = append(refs, field.Interface().(graph.Ref))
+		}
+	}
+	return refs
+}
+
+func TestGraph_DomainAboveTheSchema(t *testing.T) {
+	a := app.New(configtest.Config(t), io.Discard)
+	sys := buildAsRun(t, a)
+	n := a.Nodes()
+
+	domain := domainNodes(n)
+	if len(domain) == 0 {
+		t.Fatal("Nodes holds no domain node")
+	}
+	for _, r := range domain {
+		if !sys.Has(r) {
+			t.Errorf("%s is not in the System", r.Name())
+			continue
+		}
+		if l, u := sys.LayerOf(n.Schema), sys.LayerOf(r); l >= u {
+			t.Errorf("%s in layer %d, %s in layer %d; want %s below", n.Schema.Name(), l, r.Name(), u, n.Schema.Name())
 		}
 	}
 	if t.Failed() {

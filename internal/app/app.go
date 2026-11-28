@@ -64,9 +64,9 @@ type Nodes struct {
 	// is current before the service takes a request.
 	Schema *graph.Node[*admin.Service]
 
-	// Domain (domain.go): the job root over the job journal. It mounts no
-	// routes, so it is one of [App.Roots] until a route or reactor Uses
-	// it.
+	// Domain (domain.go): the job root over the job journal, ordered after
+	// the schema as every domain node is. It mounts no routes, so it is one
+	// of [App.Roots] until a route or reactor Uses it.
 	Jobs *graph.Node[*jobs.Service]
 
 	// Reactors (reactors.go): the group each reactor joins with graph.In.

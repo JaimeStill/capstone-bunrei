@@ -71,4 +71,4 @@ var schemas = map[string]string{
 	LayerDocinfer: "urn:standards-lab:docinfer:" + docinfer.Version,
 }
 
-func subject(job string) string { return "bunrei.job." + job }
+func (s *Service) subject(job string) string { return s.prefix + "." + job }

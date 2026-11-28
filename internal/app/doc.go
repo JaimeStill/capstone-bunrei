@@ -77,8 +77,8 @@
 // until a domain node Uses it, so both are built, and a wiring mistake in
 // either fails at startup. The job journal is go-messaging's NATS broker
 // over the nats block, the owner of the BUNREI_JOBS stream, which captures
-// bunrei.job.> and holds each job's events on its subject,
-// bunrei.job.<job>; the work queue is go-messaging's NATS work queue over
+// the block's prefix, bunrei.job.> by default, and holds each job's events
+// on its subject, the prefix, a dot, and the job's ID; the work queue is go-messaging's NATS work queue over
 // the nats_queue block, the owner of the BUNREI_WORK work-queue stream,
 // which holds the jobs on bunrei.work and their dead letters on
 // bunrei.work.dead. Each provisions its stream on file storage at Start,
@@ -113,9 +113,11 @@
 // under domain/, and each node's constructor builds its service from the
 // infrastructure nodes it Uses, never from Nodes itself. Domain services
 // own no resource and never run, so none is a lifecycle participant. The
-// jobs node is the job root, domain/jobs's Service over the job journal; it
-// orders itself after the work queue too, so the domain layer starts after
-// all of its infrastructure. It mounts no routes, so it is one of
+// jobs node is the job root, domain/jobs's Service over the job journal,
+// handed the nats block's prefix as the prefix of its subjects. It orders
+// itself after the work queue and the schema too, so the domain layer
+// starts after all of its infrastructure and after the migrations; every
+// domain node orders itself after the schema. It mounts no routes, so it is one of
 // [App.Roots] until a route or reactor Uses it. A package that does own a
 // resource and run belongs in the infrastructure layer, if it is built once
 // at startup, or the reactors layer, if it reacts to an external occurrence
