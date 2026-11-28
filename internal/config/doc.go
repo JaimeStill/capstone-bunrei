@@ -1,17 +1,16 @@
 // Package config declares the service's layered configuration.
 //
 //   - [Config] is the root: the library capability blocks (log, server,
-//     go-database's connection block, whose name is required,
-//     go-storage's connection block, whose container is required, and
-//     go-messaging's NATS broker and work-queue blocks, nats and
-//     nats_queue, each owning its stream and requiring its stream name and
-//     subjects), the
-//     service-owned object layout, read policy, and sweep policy, and the shutdown timeout. The timeout
-//     comes from go-core's lifecycle.Config, embedded by value and untagged,
-//     so shutdown_timeout is a top-level key, and Config.Config is the block
-//     the composition root hands the lifecycle Coordinator. Its Merge and
-//     Finalize delegate to each block's own, and its Finalize checks the
-//     sweep's object ages against the objects block's renew age.
+//     go-database's connection block, whose name is required, go-storage's
+//     connection block, whose container is required, and go-messaging's NATS
+//     broker and work-queue blocks, nats and nats_queue, each owning its
+//     stream and requiring its stream name and subjects), the service-owned
+//     object layout, read policy, and sweep policy, and the shutdown timeout.
+//     The timeout comes from go-core's lifecycle.Config, embedded by value
+//     and untagged, so shutdown_timeout is a top-level key, and Config.Config
+//     is the block the composition root hands the lifecycle Coordinator. Its
+//     Merge and Finalize delegate to each block's own, and its Finalize
+//     checks the sweep's object ages against the objects block's renew age.
 //   - [ObjectsConfig] is the service-owned object layout, with its own Merge
 //     and Finalize: the content and input prefixes in the storage container
 //     and their shared renew age. [ObjectsEnv] records the

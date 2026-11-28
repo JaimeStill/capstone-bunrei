@@ -44,12 +44,11 @@ type Nodes struct {
 	// Infrastructure (infrastructure.go). SQL is the sqlate session over
 	// the database's pool, which the schema and the sweeper share. Content
 	// is docproc's content store and Input the store of each job's staged
-	// input, both over the storage node; each is one of [App.Roots] until
-	// a domain node Uses it, so a wiring mistake in either fails the
-	// Build. JobJournal is the
-	// NATS broker that owns the BUNREI_JOBS stream, and WorkQueue the NATS
-	// work queue that owns the BUNREI_WORK stream; the work queue is one
-	// of [App.Roots] until a node Uses it.
+	// input, both over the storage node; each is one of [App.Roots] until a
+	// domain node Uses it, so a wiring mistake in either fails the Build.
+	// JobJournal is the NATS broker that owns the BUNREI_JOBS stream, and
+	// WorkQueue the NATS work queue that owns the BUNREI_WORK stream; the
+	// work queue is one of [App.Roots] until a node Uses it.
 	LifecycleConfig *graph.Node[lifecycle.Config]
 	Logger          *graph.Node[*slog.Logger]
 	Database        *graph.Node[*database.DB]
@@ -116,12 +115,11 @@ func (a *App) Graph() *graph.Graph { return a.graph }
 func (a *App) Nodes() Nodes { return a.nodes }
 
 // Roots returns the service's root set, the nodes a Build of the whole
-// service starts from: the server, which reaches the router, the
-// readiness, the logger, the writer node, and the config node through its
-// Uses and theirs; the reactors group, whose members no Use reaches; the
-// schema, which reaches the database; the content and input stores,
-// which reach the storage; the job root, which reaches the job journal;
-// and the work queue.
+// service starts from: the server, which reaches the router, the readiness,
+// the logger, the writer node, and the config node through its Uses and
+// theirs; the reactors group, whose members no Use reaches; the schema,
+// which reaches the database; the content and input stores, which reach the
+// storage; the job root, which reaches the job journal; and the work queue.
 // [App.Run] builds this set plus the lifecycle config node the Coordinator
 // is configured from.
 func (a *App) Roots() []graph.Ref {

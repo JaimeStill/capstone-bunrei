@@ -176,9 +176,8 @@ func Database(t testing.TB) *sql.DB {
 // module root's base file with the harness's variables pointing it at the
 // compose stack, and returns the App described over it, unbuilt, so a test
 // can Build and drive a node no route reaches, such as the content store or
-// the job root.
-// It sets the variables and the working directory for the test's duration,
-// so a test that calls it cannot run in parallel.
+// the job root. It sets the variables and the working directory for the
+// test's duration, so a test that calls it cannot run in parallel.
 func Compose(t *testing.T) *app.App {
 	t.Helper()
 	t.Chdir("..")
