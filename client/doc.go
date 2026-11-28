@@ -3,8 +3,9 @@
 // events carry them. It is a nested module of its own, so a caller imports it without Bunrei's
 // dependencies, and Bunrei imports none of its callers.
 //
-// The Client, which [New] builds over the API's base URL and the caller's http.Client, has one
-// method per Command and Query, each sent under the base URL:
+// [New] builds a [Client] over the base URL the API's routes hang from, an absolute http or https
+// URL such as http://bunrei:8080/api, and an http.Client the caller owns and configures. The
+// Client has one method per Command and Query, each sent under the base URL:
 //
 //   - [Client.Submit]: POST /jobs;
 //   - [Client.CompleteUpload]: POST /uploads/{upload}/complete;
@@ -13,8 +14,13 @@
 //   - [Client.GetOutput]: GET /outputs/{sha256}, the content streamed;
 //   - [Client.ListProfiles]: GET /profiles, each [Profile] Bunrei serves.
 //
-// [Client.Upload] sends a large document as a resumable upload under /uploads, resuming a send
-// cut off partway within its [UploadOptions], and returns the ID [Client.CompleteUpload] takes.
+// [Client.Upload] sends a document past the small-document limit as a resumable upload: POST
+// /uploads creates it, PATCH /uploads/{upload} appends each chunk, and HEAD /uploads/{upload}
+// reads the offset the server holds. A send cut off partway, or answered 5xx, 429, or 409,
+// resumes from that offset, and [UploadOptions] sets how many such failures in a row it bears,
+// the delay before each retry, and the chunk size. It returns the completed upload's ID, which
+// [CompleteUpload] names and [Client.CompleteUpload] queues as a job. When the attempts run out,
+// the server keeps the partial upload until its lifetime ends.
 //
 // The job's types:
 //
@@ -39,7 +45,7 @@
 //   - [AttemptFailed]: attempt.failed's, the attempt and its error;
 //   - [Failed]: failed's, the attempt and its error.
 //
-// A refusal is an RFC 9457 problem whose type is [ProblemPrefix] followed by its name:
+// The error type is [Problem]. A refusal is an RFC 9457 problem whose type is [ProblemPrefix] followed by its name:
 // [ProblemInvalidRequest], [ProblemContentTooLarge], [ProblemExtractionTooLarge],
 // [ProblemSubmitConflict], [ProblemJobNotFound], [ProblemJobEnded], [ProblemOutputNotFound], and
 // [ProblemUploadNotFound]. The Client returns one as a [*Problem], and errors.Is matches it
@@ -48,5 +54,6 @@
 // [ErrOutputNotFound], and [ErrUploadNotFound].
 //
 // Each type's JSON is its wire shape, with snake_case member names, at the wire version
-// [Version].
+// [Version], 1, which grows by addition only. Bunrei's events name it in their dataschema,
+// urn:standards-lab:bunrei:client:1.
 package client

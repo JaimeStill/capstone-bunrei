@@ -97,15 +97,23 @@ Configuration layers in a fixed precedence, later sources winning:
    - `BUNREI_NATS_*`, `BUNREI_NATS_QUEUE_*`: go-messaging's NATS broker for the BUNREI_JOBS stream
      (`nats`), and its work queue for the BUNREI_WORK stream (`nats_queue`), each with its own URL
      and owning its stream
-   - `BUNREI_OBJECTS_CONTENT_PREFIX`, `BUNREI_OBJECTS_INPUT_PREFIX`, `BUNREI_OBJECTS_RENEW_AGE`
+   - `BUNREI_OBJECTS_CONTENT_PREFIX`, `BUNREI_OBJECTS_INPUT_PREFIX`,
+     `BUNREI_OBJECTS_UPLOAD_PREFIX`, `BUNREI_OBJECTS_RENEW_AGE`
+   - `BUNREI_SUBMISSIONS_DOCUMENT_LIMIT`, `BUNREI_SUBMISSIONS_RETENTION`
+   - `BUNREI_UPLOADS_LIFETIME`, `BUNREI_UPLOADS_CHUNK_SIZE`
    - `BUNREI_SWEEP_INTERVAL`, `BUNREI_SWEEP_BATCH`, and `BUNREI_SWEEP_<KEY>_AGE` for `outbox`,
      `inbox`, `index`, `content`, and `input`
    - `BUNREI_READS_DEFAULT_SIZE`, `BUNREI_READS_MAX_SIZE`
    - `BUNREI_SHUTDOWN_TIMEOUT`
 
-Bunrei owns two blocks besides `reads`. `objects` sets the bucket prefixes that docproc's
-content (`content/`) and each job's staged input (`input/`) are kept under, and the renew age
-(7 days) past which a put of an object already present writes it again. `sweep` sets how often
+Bunrei owns four blocks besides `reads`. `objects` sets the bucket prefixes that docproc's
+content (`content/`), each job's staged input (`input/`), and the resumable uploads' chunks
+(`upload/`) are kept under, and the renew age (7 days) past which a put of an object already
+present writes it again. `submissions` sets the small-document limit (`document_limit`, 4 MiB),
+past which a document goes through an upload instead of Submit, and how long a Submit's
+idempotency record is kept (`retention`, 30 days). `uploads` sets how long an upload, and then
+its completed record, lasts (`lifetime`, 24 hours), and the most bytes one append carries
+(`chunk_size`, 4 MiB); the sweeper reclaims `upload/` at twice the lifetime. `sweep` sets how often
 the sweeper runs each reclaimer, the budget of one pass, and the age past which each reclaimer
 deletes: published outbox rows and handled inbox rows at 7 days, docproc's index entries at 30,
 objects under `content/` at 67, and objects under `input/` at 30. Startup refuses a content or
@@ -115,6 +123,44 @@ older than that.
 Every file is optional — a deployment can run on the base file and environment variables alone,
 or on environment variables only. Each file present decodes strictly: a key the `Config` types do
 not declare fails the load.
+
+## The client module
+
+Bunrei serves its Commands, Queries, and resumable upload under `/api`. The nested `client`
+module, `github.com/JaimeStill/capstone-bunrei/client`, is that protocol in Go; its
+[package documentation](client/doc.go) lists the whole API and the route each method calls.
+
+The module is released by tag, `client/v0.1.0` and on, with its own
+[changelog](client/CHANGELOG.md). A caller such as Mikoshi imports the published version:
+
+```sh
+go get github.com/JaimeStill/capstone-bunrei/client@v0.1.0
+```
+
+```go
+c, err := client.New("http://bunrei:8080/api", &http.Client{Timeout: 30 * time.Second})
+if err != nil {
+	return err
+}
+job, err := c.Submit(ctx, client.Submit{
+	ID:        id,
+	Profile:   "standard@1",
+	Name:      "report.pdf",
+	MediaType: "application/pdf",
+	Content:   content,
+})
+if errors.Is(err, client.ErrContentTooLarge) {
+	upload, uerr := c.Upload(ctx, "report.pdf", "application/pdf", file, client.UploadOptions{Attempts: 5})
+	if uerr != nil {
+		return uerr
+	}
+	job, err = c.CompleteUpload(ctx, client.CompleteUpload{Upload: upload, Profile: "standard@1"})
+}
+```
+
+Bunrei's root module builds against the client in this repository through `replace ./client`
+in its `go.mod`, which never reaches a caller: a caller requires the published tag, never a
+`replace`. The client's `go.mod` has no `replace` and does not require the root module.
 
 ## Building out the service
 
@@ -128,9 +174,9 @@ and those files are the build points:
 - `middleware.go` for the router-level middleware
 
 The domain layer holds the job root, the `domain/jobs` package, which folds a job's events and
-appends the next under the expected sequence. The reactors layer holds the sweeper, whose object
-reclaimers are the `expiry` package. The nested `client` module holds the job's types. Each
-package's documentation describes it.
+appends the next under the expected sequence, and the packages behind the API's routes. The
+reactors layer holds the sweeper, whose object reclaimers are the `expiry` package. The nested
+`client` module holds the protocol and its `Client`. Each package's documentation describes it.
 
 [Building out the service](docs/building-out.md) covers how the layer files define and mount
 their nodes, and walks through adding a domain service, an infrastructure service, an admin
