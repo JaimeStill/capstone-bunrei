@@ -121,7 +121,26 @@ configuration or migrations a later task can change while no deployment holds da
 
 ## Progress
 
-slices 0/8 committed · standards — · spec — · editor —
+slices 8/8 committed · standards — · spec — · editor —
+- slice 2: no root `require` on `client` until a root package imports it (tidy drops it);
+  wire names snake_case after docinfer; `client` requires docinfer v0.5.0; the wire-version
+  constant waits for the first `dataschema` stamp.
+- slice 3: `completed` fills `Job.Manifest`; Append folds before appending (refuses an event
+  the fold can't apply); unknown-outcome retries (3) live in `Service.Append`; time stamped when
+  absent; job IDs must be UUIDs; `dataschema` per layer; go directive 1.27.4.
+- slice 4: stack ports NATS 4227, PostgreSQL 5443, SeaweedFS S3 8338; plain postgres image
+  (no pgvector: no migration set needs it); currency reads compose Dockerfile pins via crane.
+- slice 5: docproc/postgres v0.1.8 fetched direct (proxy and sumdb 404 a tag that exists on the
+  public remote); go-messaging v0.6.0, go-messaging/postgres v0.5.0; schema node is a root;
+  five unit tests moved to the integration tier (the service needs a database); the password
+  comes from secrets (`secrets.example.json`).
+- slice 6: staged input reuses docproc/storage `Content` under `input/`; a Bunrei `objects`
+  block holds the prefixes and renew age; `integration.Compose(t)` exercises Bunrei's own nodes.
+- slice 7: settings use the provider's `nats` and `nats_queue` blocks, each with its own URL; the
+  jobs node is ordered after the work queue.
+- slice 8: blob reclaimer is root-level `expiry` (no library pages a storage prefix by age); a
+  pass lists at most its budget; startup refuses content or input ages at or below the renew
+  age; a shared `sql` node; Bunrei-owned `sweep` block.
 
 ## Decisions
 
@@ -310,7 +329,8 @@ slices 0/8 committed · standards — · spec — · editor —
   `context/events.md` "Ownership": `state` creates `client` with the job types; `api` completes and
   releases it.
 - docproc · `context/bunrei.md` "State and subjects": settled names and retentions; Bunrei's
-  reclaimer replaces "host sweeps content by age"; drop "names and retentions are `state`'s".
+  reclaimer replaces "host sweeps content by age"; drop "names and retentions are `state`'s"; keys are `content/ab/<sha256>` and
+  `input/ab/<sha256>`, as docproc/storage lays them out.
 - coordinator · `docs/data-intelligence.md`: "Open items" `state` names/retentions resolved;
   "Bunrei", "State": reclaimer, not lifecycle rule.
 - coordinator · `context/data-intelligence.md` go-messaging asks: append and work queue built
