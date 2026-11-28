@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"uuid"
@@ -78,6 +79,11 @@ func TestClient_SubmitGetJobAndCancelJob(t *testing.T) {
 	missing.ID = ""
 	_, err = c.Submit(ctx, missing)
 	wantProblem(t, "a Submit without its ID", err, client.ErrInvalidRequest)
+
+	unprofiled := submitRequest()
+	unprofiled.Profile = ""
+	_, err = c.Submit(ctx, unprofiled)
+	wantProblem(t, "a Submit without its profile", err, client.ErrInvalidRequest)
 
 	_, err = c.GetJob(ctx, uuid.NewV7().String())
 	wantProblem(t, "GetJob of an unknown job", err, client.ErrJobNotFound)
@@ -173,12 +179,59 @@ func TestClient_UploadResumedThenCompleteUpload(t *testing.T) {
 		t.Errorf("GetJob = %+v, %v; want %+v", got, err, j)
 	}
 
+	unprofiled := req
+	unprofiled.Profile = ""
+	_, err = c.CompleteUpload(ctx, unprofiled)
+	wantProblem(t, "a CompleteUpload without its profile", err, client.ErrInvalidRequest)
+
+	extracting := req
+	prompt := strings.Repeat("p", 90<<10)
+	extracting.Extract = &docinfer.Extract{Name: "invoice", Prompt: prompt, Schema: []byte(`{"type":"object"}`)}
+	extracting.Document = &docinfer.Extract{Name: "all", Prompt: prompt, Schema: []byte(`{"type":"object"}`)}
+	extracting.Timeline = &docinfer.Extract{Name: "scenes", Prompt: prompt, Schema: []byte(`{"type":"object"}`)}
+	_, err = c.CompleteUpload(ctx, extracting)
+	wantProblem(t, "a CompleteUpload whose three extracts pass 256 KiB together", err, client.ErrExtractionTooLarge)
+
 	req.Profile = "standard@2"
 	_, err = c.CompleteUpload(ctx, req)
 	wantProblem(t, "a repeat with another profile", err, client.ErrSubmitConflict)
 	req.Upload = uuid.NewV4().String()
 	_, err = c.CompleteUpload(ctx, req)
 	wantProblem(t, "CompleteUpload of an unknown upload", err, client.ErrUploadNotFound)
+
+	if code := s.Stop(t); code != 0 {
+		t.Fatalf("exit = %d, want 0:\n%s", code, s.Output())
+	}
+}
+
+func TestClient_ConcurrentSubmitsOfOneIDYieldOneJob(t *testing.T) {
+	s := integration.Start(t, integration.Options{})
+	c := protocol(t, s, http.DefaultTransport)
+	ctx := context.Background()
+	req := submitRequest()
+
+	const n = 8
+	var wg sync.WaitGroup
+	results := make([]client.Job, n)
+	errs := make([]error, n)
+	for i := range n {
+		wg.Go(func() { results[i], errs[i] = c.Submit(ctx, req) })
+	}
+	wg.Wait()
+
+	ids := map[string]bool{}
+	for i := range n {
+		if errs[i] != nil || results[i].State != client.StateQueued {
+			t.Errorf("Submit %d = %+v, %v; want the job queued", i, results[i], errs[i])
+		}
+		ids[results[i].ID] = true
+	}
+	if len(ids) != 1 {
+		t.Fatalf("the Submits returned jobs %v, want one", ids)
+	}
+	if got, err := c.GetJob(ctx, results[0].ID); err != nil || got != results[0] {
+		t.Errorf("GetJob = %+v, %v; want %+v", got, err, results[0])
+	}
 
 	if code := s.Stop(t); code != 0 {
 		t.Fatalf("exit = %d, want 0:\n%s", code, s.Output())

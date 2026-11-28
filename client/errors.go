@@ -18,8 +18,9 @@ const ProblemPrefix = "urn:standards-lab:bunrei:problem:"
 // problem's name.
 const (
 	// ProblemInvalidRequest is a 400: a body that is not the Command's JSON; a Command missing
-	// its ID or profile, or with a media type that is not type/subtype; a job ID or an upload
-	// that is not a UUID; or an output's SHA-256 that is not 64 lowercase hex digits.
+	// its ID or profile, with an ID past 255 bytes, or with a media type that is not
+	// type/subtype; a job ID or an upload that is not a UUID; or an output's SHA-256 that is not
+	// 64 lowercase hex digits.
 	ProblemInvalidRequest = ProblemPrefix + "invalid-request"
 	// ProblemContentTooLarge is a 413: a document past the small-document limit, which goes
 	// through the upload instead, or a body past the limit's encoded size.
